@@ -1,0 +1,21 @@
+# Arc Forge rehearsal infrastructure; never sent upstream. See .arcforge/README.md.
+# Barnacle auto-response (arcforgelabs/.github). Triggers match openclaw's
+# auto-response.yml; the logic and config live in arcforgelabs/.github.
+# Per-repo overrides: optional .github/barnacle.json on the default branch.
+name: Barnacle
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+  issue_comment:
+    types: [created]
+  pull_request_target: # trusted reusable workflow only; never checks out PR code
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+
+permissions: {}
+
+jobs:
+  barnacle:
+    uses: arcforgelabs/.github/.github/workflows/barnacle.yml@d1877d0bac0d77e614929580f071437d8ad3ac71 # arcforgelabs/.github main
+    secrets:
+      BARNACLE_APP_PRIVATE_KEY: ${{ secrets.BARNACLE_APP_PRIVATE_KEY }}

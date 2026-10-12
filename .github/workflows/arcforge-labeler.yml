@@ -1,0 +1,27 @@
+# Arc Forge rehearsal infrastructure; never sent upstream. See .arcforge/README.md.
+name: Labeler
+
+on:
+  pull_request_target: # Trusted reusable workflow only; never executes PR code.
+    types: [opened, synchronize, reopened, edited]
+  issues:
+    types: [opened, edited]
+  workflow_dispatch:
+    inputs:
+      max_prs:
+        description: "Maximum open PRs to backfill (0 = all)"
+        default: "200"
+      per_page:
+        description: "PRs per page (1-100)"
+        default: "50"
+
+permissions: {}
+
+jobs:
+  labeler:
+    uses: arcforgelabs/.github/.github/workflows/labeler.yml@a115c8f8dc02978d8c82c9554f02ea8e013a6981
+    with:
+      max_prs: ${{ inputs.max_prs || '200' }}
+      per_page: ${{ inputs.per_page || '50' }}
+    secrets:
+      BARNACLE_APP_PRIVATE_KEY: ${{ secrets.BARNACLE_APP_PRIVATE_KEY }}
