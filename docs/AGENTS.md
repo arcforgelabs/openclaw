@@ -52,3 +52,4 @@ Own docs authoring, published links, docs i18n policy.
 - English docs/glossary here authoritative (ClawHub: Source Ownership). Never add/edit `docs/<locale>/**` here; generated translations + `docs/.i18n/*.tm.jsonl` → `openclaw/docs`.
 - Before publish-repo sync/`scripts/docs-i18n`: update English + glossary here. Before rerunning translation: entries for new technical terms, page titles, short nav labels, terms requiring fixed translation/English spelling.
 - Changed English titles/short internal labels: `pnpm docs:check-i18n-glossary`. Pipeline: read `docs/.i18n/README.md`.
+
