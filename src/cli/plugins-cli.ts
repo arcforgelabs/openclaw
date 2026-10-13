@@ -154,7 +154,7 @@ export function registerPluginsCli(program: Command) {
     .option("--pin", "Record npm installs as exact resolved <name>@<version>", false)
     .option(
       "--expected-integrity <digest>",
-      "Refuse a clawhub: or npm: artifact whose integrity differs (sha256-... for ClawHub, sha512-... for npm)",
+      "Refuse a clawhub:<package>@<version> archive whose SHA-256 differs from this digest",
     )
     .option("--no-enable", "Preserve existing plugin enablement, allowlists, and denylists")
     .option("--accept-capabilities", "Accept the plugin's declared capabilities", false)

@@ -201,29 +201,28 @@ pins; an explicit version supplied to the current update command still wins. See
 
 ### --expected-integrity
 
-`--expected-integrity <digest>` refuses an install whose downloaded artifact does not
-match a digest you reviewed, before OpenClaw extracts or installs it. Use it to pin
-the exact release you approved, so a registry that later serves different bytes
-under the same version cannot change what you install.
+`--expected-integrity <digest>` refuses a ClawHub install whose downloaded archive
+does not match a digest you reviewed, before OpenClaw extracts or installs it. Use it
+to pin the exact release you approved, so a registry that later serves different
+bytes under the same version cannot change what you install.
 
 ```bash
 openclaw plugins install clawhub:@openclaw/lobster@2026.9.7 \
   --expected-integrity sha256-JcZWME9XIGfIGl8TZb+oeW2DyHqKNX+O3Y90W2lg40Q=
-openclaw plugins install npm:@scope/plugin-name@1.0.1 --expected-integrity sha512-...
 ```
 
-- ClawHub installs take the archive's SHA-256, as `sha256-<base64>`, `sha256:<hex>`,
-  or 64 hex characters. A mismatch fails with `ClawHub archive integrity mismatch`.
-  The installed record's `integrity` is this digest.
-- npm installs take the package's `sha512-` integrity, as `npm view` reports it. A
-  mismatch fails with an integrity drift error before the package is installed.
-- The spec must name one exact release: `clawhub:<package>@<version>` or
-  `npm:<package>@<version>`. Unversioned specs, tags, and other sources (local
-  paths, archives, `git:`, marketplace, bundled, and official catalog ids) are
-  refused, so the digest can never silently describe a different artifact.
+- The digest is the archive's SHA-256, as `sha256-<base64>`, `sha256:<hex>`, or 64
+  hex characters. A mismatch fails with `ClawHub archive integrity mismatch`, and
+  nothing is extracted or recorded. The installed record's `integrity` is this
+  digest.
+- The spec must name one exact ClawHub release: `clawhub:<package>@<version>`.
+  Unversioned specs, tags, and other sources (npm, local paths, archives, `git:`,
+  marketplace, bundled, and official catalog ids) are refused, so the digest can
+  never silently describe a different artifact. npm installs resolve their tarball
+  separately from the registry metadata they check, so they are not offered.
 - When the official catalog already pins a different digest for that release, the
   install is refused.
-- The digest covers the plugin artifact. npm dependencies the plugin declares are
+- The digest covers the plugin archive. npm dependencies the plugin declares are
   resolved when it installs, with lifecycle scripts disabled.
 
 ### --acknowledge-install-policy-warning

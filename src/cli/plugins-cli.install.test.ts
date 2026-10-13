@@ -629,57 +629,15 @@ describe("plugins cli install", () => {
     ).resolves.toEqual({ status: "approved" });
   });
 
-  it("passes an operator ClawHub digest to the installer in SRI form", async () => {
-    primeSuccessfulClawHubPluginInstall();
-    const hex = "25c656304f572061f21a5f13659fe87b6d83c87a8a357f8edd8f745b6960e344";
-
-    await installAccepted("clawhub:demo@1.2.3", "--expected-integrity", `sha256:${hex}`);
-
-    expect(clawHubInstallCall().expectedIntegrity).toBe(
-      `sha256-${Buffer.from(hex, "hex").toString("base64")}`,
-    );
-  });
-
-  it("passes an operator npm digest to the installer", async () => {
-    primeSuccessfulPluginPersistence("demo");
-    installPluginFromNpmSpecMock.mockResolvedValue(createNpmPluginInstallResult("demo"));
-    const integrity = `sha512-${Buffer.alloc(64, 1).toString("base64")}`;
-
-    await installAcknowledged("npm:@acme/demo@1.0.0", "--expected-integrity", integrity);
-
-    expect(npmInstallCall().expectedIntegrity).toBe(integrity);
-  });
-
-  // A versioned npm spec that this build ships resolves to the bundled copy before
-  // npm. A digest names one npm artifact, so it must not install that copy instead.
-  it("refuses an npm digest for a spec that resolves to a bundled copy", async () => {
-    const pluginId = "demo";
-    findBundledPluginSourceMock.mockImplementation((input) => {
-      const { lookup } = input as Parameters<
-        typeof import("../plugins/bundled-sources.js").findBundledPluginSource
-      >[0];
-      return lookup.kind === "npmSpec"
-        ? { pluginId, localPath: installedPluginRoot(resolveStateDir(), pluginId) }
-        : undefined;
-    });
-
-    await expect(
-      installAcknowledged(
-        "demo-package@1.0.0",
-        "--expected-integrity",
-        `sha512-${Buffer.alloc(64, 1).toString("base64")}`,
-      ),
-    ).rejects.toThrow("--expected-integrity is only supported with clawhub");
-
-    expect(installPluginFromNpmSpecMock).not.toHaveBeenCalled();
-    expect(installPluginFromPathMock).not.toHaveBeenCalled();
-    expect(writePersistedInstalledPluginIndexInstallRecordsWithLeaseMock).not.toHaveBeenCalled();
-  });
-
-  // A digest describes one exact registry artifact; anything else is refused
-  // before any installer runs or configuration is written.
+  // A digest describes one exact ClawHub archive; anything else is refused before
+  // any installer runs or configuration is written.
   it.each([
     ["git:https://example.invalid/demo.git", "sha256-x", "only supported with clawhub"],
+    [
+      "npm:@acme/demo@1.0.0",
+      `sha512-${Buffer.alloc(64, 1).toString("base64")}`,
+      "only supported with clawhub",
+    ],
     ["clawhub:demo", `sha256-${Buffer.alloc(32, 7).toString("base64")}`, "exact ClawHub version"],
     [
       "clawhub:demo@beta",
@@ -687,8 +645,6 @@ describe("plugins cli install", () => {
       "exact ClawHub version",
     ],
     ["clawhub:demo@1.2.3", "sha256-abc", "must be a SHA-256 digest"],
-    ["npm:@acme/demo", `sha512-${Buffer.alloc(64, 1).toString("base64")}`, "exact npm version"],
-    ["npm:@acme/demo@1.0.0", "sha256-abc", "must be an npm sha512- integrity"],
   ])("refuses --expected-integrity for %s (%s)", async (spec, digest, message) => {
     await expect(installAcknowledged(spec, "--expected-integrity", digest)).rejects.toThrow(
       message,

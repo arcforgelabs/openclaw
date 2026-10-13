@@ -379,6 +379,7 @@ describe("openclaw plugins install ClawHub E2E", () => {
   it("installs when the operator digest matches the served archive", async () => {
     const testServer = await startClawHubServer();
     const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-plugin-pin-ok-"));
+    // The operator passes the hex form; the install record keeps the SRI form.
     const expected = `sha256-${Buffer.from(testServer.artifactSha256, "hex").toString("base64")}`;
     try {
       const result = await spawnOpenClaw(
@@ -388,7 +389,7 @@ describe("openclaw plugins install ClawHub E2E", () => {
           `clawhub:${PACKAGE_NAME}@${PACKAGE_VERSION}`,
           "--accept-capabilities",
           "--expected-integrity",
-          expected,
+          `sha256:${testServer.artifactSha256}`,
         ],
         { cwd: process.cwd(), env: buildEnv(stateDir, testServer.registry) },
       );

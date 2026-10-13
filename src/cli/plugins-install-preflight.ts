@@ -1,7 +1,7 @@
 // Resolve and validate plugin install requests without opening mutable runtime state.
 import fs from "node:fs";
 import { normalizeClawHubSha256Integrity } from "../infra/clawhub-integrity.js";
-import { isExactSemverVersion, parseRegistryNpmSpec } from "../infra/npm-registry-spec.js";
+import { isExactSemverVersion } from "../infra/npm-registry-spec.js";
 import { resolvePluginInstallRequestContext } from "../plugins/install-config.js";
 import type { InstallSafetyOverrides } from "../plugins/install-security-scan.js";
 import { resolvePluginInstallSourcePlan } from "../plugins/install-source-plan.js";
@@ -43,7 +43,7 @@ function resolveMarketplaceOptionError(opts: RunPluginInstallCommandParams["opts
     return `--link is not supported with --marketplace. Remove --link, or install a local path with ${formatCliCommand(`openclaw plugins install --link <path> ${NON_CLAWHUB_INSTALL_FORCE_FLAG}`)}.`;
   }
   if (opts.expectedIntegrity !== undefined) {
-    return "--expected-integrity is not supported with --marketplace. Use a clawhub:<package>@<version> or npm:<package>@<version> spec.";
+    return "--expected-integrity is not supported with --marketplace. Use a clawhub:<package>@<version> spec.";
   }
   if (opts.pin) {
     return `--pin is not supported with --marketplace. Use ${formatCliCommand(`openclaw plugins install <plugin> --marketplace <name> ${NON_CLAWHUB_INSTALL_FORCE_FLAG}`)} without --pin.`;
@@ -76,8 +76,10 @@ function resolveSourceOptionError(
 }
 
 /**
- * Bind an operator-supplied artifact digest to an exact registry release. The
- * installers already refuse a mismatched download before extracting it.
+ * Bind an operator-supplied archive digest to one exact ClawHub release. The ClawHub
+ * installer hashes the downloaded archive and refuses a mismatch before extracting
+ * it. npm resolves its tarball separately from the metadata it checks, so it is not
+ * offered here.
  */
 function applyExpectedIntegrity(
   expectedIntegrity: string,
@@ -106,29 +108,9 @@ function applyExpectedIntegrity(
       sourcePlan: { ...sourcePlan, request: { ...request, expectedIntegrity: normalized } },
     };
   }
-  if (request.source === "npm") {
-    const trimmed = expectedIntegrity.trim();
-    if (!trimmed.startsWith("sha512-")) {
-      return {
-        ok: false,
-        error: `--expected-integrity for an npm install must be an npm sha512- integrity: ${expectedIntegrity}`,
-      };
-    }
-    if (parseRegistryNpmSpec(request.spec)?.selectorKind !== "exact-version") {
-      return {
-        ok: false,
-        error: "--expected-integrity requires an exact npm version: npm:<package>@<version>.",
-      };
-    }
-    return {
-      ok: true,
-      sourcePlan: { ...sourcePlan, request: { ...request, expectedIntegrity: trimmed } },
-    };
-  }
   return {
     ok: false,
-    error:
-      "--expected-integrity is only supported with clawhub:<package>@<version> and npm:<package>@<version> installs.",
+    error: "--expected-integrity is only supported with clawhub:<package>@<version> installs.",
   };
 }
 
