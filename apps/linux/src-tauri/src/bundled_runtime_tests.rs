@@ -628,3 +628,32 @@ fn aot_version_admission_has_private_state_and_removes_its_probe_files() {
     .unwrap();
     assert_eq!(names(), before);
 }
+
+#[cfg(unix)]
+#[test]
+fn seeded_runtime_directories_are_not_group_or_world_writable() {
+    use std::os::unix::fs::PermissionsExt;
+    // Ubuntu's default umask for users with a private group is 0002.
+    let previous = unsafe { libc::umask(0o002) };
+    let fixture = Fixture::new();
+    let seeded = fixture.seed();
+    unsafe { libc::umask(previous) };
+    seeded.unwrap();
+    let mut stack = vec![fixture.prefix.clone()];
+    while let Some(path) = stack.pop() {
+        let metadata = fs::symlink_metadata(&path).unwrap();
+        assert_eq!(
+            metadata.permissions().mode() & 0o022,
+            0,
+            "{} is group- or world-writable",
+            path.display()
+        );
+        if metadata.is_dir() {
+            stack.extend(
+                fs::read_dir(&path)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path()),
+            );
+        }
+    }
+}
