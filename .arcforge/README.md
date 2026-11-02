@@ -1,7 +1,8 @@
 # Arc Forge rehearsal fork
 
-`arcforgelabs/openclaw` is where Arc Forge rehearses a pull request before it
-goes to `openclaw/openclaw`. Our own ClawSweeper
+`arcforgelabs/openclaw` holds all Arc Forge work on OpenClaw: issues, evidence,
+feature branches, and the rehearsal of each pull request before it goes to
+`openclaw/openclaw`. Our own ClawSweeper
 (`arc-forge-clawsweeper-review[bot]`) reviews each rehearsal pull request at its
 exact head, and Barnacle, the labeler and the command reactions run on it. This
 directory and the `arcforge-*` workflows are the only Arc Forge files here. They
@@ -47,17 +48,21 @@ Before you post upstream, make sure that the branch holds no Arc Forge file:
 git diff --name-only upstream/main...feat/my-change | grep -E '^(\.arcforge/|\.github/)' && echo STOP
 ```
 
-This fork is also the head repository for the upstream pull request; Arc Forge
-has no personal fork of OpenClaw. Open it from the same branch:
+The upstream pull request opens from the personal publish fork
+`IAMSamuelRodda/openclaw`, because GitHub allows "Allow edits by maintainers"
+only on a fork that a person owns. Push the same commits there only when the
+upstream pull request opens:
 
 ```bash
+git push personal feat/my-change
 gh pr create -R openclaw/openclaw --base main \
-  --head arcforgelabs:feat/my-change
+  --head IAMSamuelRodda:feat/my-change
+git ls-remote fork feat/my-change; git ls-remote personal feat/my-change   # same commit
+gh pr view <number> -R openclaw/openclaw --json maintainerCanModify          # true
 ```
 
-GitHub does not allow "Allow edits by maintainers" on a fork that an
-organisation owns, so say in the pull request body that maintainers can ask for
-changes and we push them.
+If a maintainer pushes a commit, fetch it from the personal fork into this
+fork's branch before your next push.
 
 Close the rehearsal pull request after the upstream one is open.
 
@@ -70,3 +75,13 @@ a new upstream workflow would arrive enabled.
 
 Open rehearsal pull requests keep working after a sync. To review against the
 newer upstream, rebase the feature branch onto `upstream/main` and push it.
+
+## Issues
+
+Record each fault we find, each fix we carry, and each port plan as an issue
+here, with one tracking issue per area (for example #7 for the Linux app). The
+personal publish fork has issues turned off. This fork is public, so keep
+private evidence out of it. The order from a fault to an upstream pull request
+is in #5: record, verify on a fresh install, search upstream, decide, build on
+an approved branch, rehearse, then publish. Send upstream pull requests in waves
+of two or three, one issue each.
