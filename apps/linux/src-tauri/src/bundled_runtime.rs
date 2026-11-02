@@ -184,7 +184,7 @@ fn seed_at(
         verify_payload(&destination, manifest_bytes, &manifest, false)?;
     } else {
         let staging = store.join(format!(".stage-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&staging)?;
+        create_runtime_directory(&staging)?;
         let result: RuntimeResult<()> = (|| {
             for file in manifest.files.keys() {
                 let output = staging.join(file);
@@ -210,6 +210,14 @@ fn seed_at(
             output.sync_all()?;
             // Windows cannot rename the runtime directory while its manifest is open.
             drop(output);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(
+                    staging.join("manifest.json"),
+                    fs::Permissions::from_mode(0o444),
+                )?;
+            }
             verify_payload(&staging, manifest_bytes, &manifest, false)?;
             probe(&staging.join(&manifest.runtime.executable), &manifest)?;
             // Windows flushes each file above; Rust cannot open directory handles for
@@ -348,6 +356,19 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), String> {
     Ok(())
 }
 
+/// The CLI refuses group- or world-writable runtime paths. A umask such as 0002
+/// would leave new directories group-writable, so remove those bits here.
+fn create_runtime_directory(path: &Path) -> std::io::Result<()> {
+    fs::create_dir(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(path)?.permissions().mode() & 0o7777 & !0o022;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    }
+    Ok(())
+}
+
 fn ensure_directory(path: &Path) -> RuntimeResult<()> {
     if let Some(parent) = path.parent().filter(|parent| *parent != path) {
         ensure_directory(parent)?;
@@ -355,7 +376,7 @@ fn ensure_directory(path: &Path) -> RuntimeResult<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::create_dir(path).map_err(Into::into)
+            create_runtime_directory(path).map_err(Into::into)
         }
         _ => Err(format!(
             "Runtime directory is unavailable or redirected: {}",
