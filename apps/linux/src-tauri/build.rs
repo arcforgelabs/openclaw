@@ -11,6 +11,7 @@ fn main() {
     }
     link_macos_swift_runtime();
     prepare_runtime_manifest();
+    prepare_sign_in_helper_directory();
     // Normal Cargo builds do not require Node; this is the same literal include
     // used by scripts/lib/standalone-installers.mjs, with no candidate code execution.
     let installer = include_str!("../../../scripts/install-cli.sh").replace(
@@ -68,6 +69,12 @@ fn prepare_gateway_stop_budget() {
         .expect("Gateway shutdown budget must be milliseconds");
     assert!(millis > 0, "Gateway shutdown budget must be positive");
     println!("cargo:rustc-env=OPENCLAW_GATEWAY_SERVICE_STOP_TIMEOUT_MS={millis}");
+}
+
+fn prepare_sign_in_helper_directory() {
+    // Plain Cargo tests stay offline. Packaging stages the pinned helper with
+    // scripts/stage-cloudflared-linux.sh; without it, sign-in reports the helper missing.
+    std::fs::create_dir_all("target/cloudflared").expect("sign-in helper resource directory");
 }
 
 fn prepare_runtime_manifest() {
