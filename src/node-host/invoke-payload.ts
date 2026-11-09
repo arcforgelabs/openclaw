@@ -3,6 +3,7 @@ import {
   asOptionalObjectRecord,
 } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { validateComputerExecutionCallerV1 } from "../../packages/gateway-protocol/src/computer-execution-context.js";
 import type { NodeInvokeCancelEvent } from "../../packages/gateway-protocol/src/schema/nodes.js";
 import type { NodeInvokeRequestPayload } from "./invoke-types.js";
 
@@ -40,6 +41,13 @@ export function coerceNodeInvokePayload(payload: unknown): NodeInvokeRequestPayl
   const timeoutMs = typeof obj.timeoutMs === "number" ? obj.timeoutMs : null;
   const idempotencyKey = typeof obj.idempotencyKey === "string" ? obj.idempotencyKey : null;
   const sessionKey = normalizeOptionalString(obj.sessionKey);
+  const computerExecutionV1 = obj.computerExecutionV1;
+  if (
+    computerExecutionV1 !== undefined &&
+    !validateComputerExecutionCallerV1(computerExecutionV1)
+  ) {
+    return null;
+  }
   return {
     id,
     nodeId,
@@ -48,6 +56,7 @@ export function coerceNodeInvokePayload(payload: unknown): NodeInvokeRequestPayl
     timeoutMs,
     idempotencyKey,
     ...(sessionKey ? { sessionKey } : {}),
+    ...(computerExecutionV1 !== undefined ? { computerExecutionV1 } : {}),
   };
 }
 

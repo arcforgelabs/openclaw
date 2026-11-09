@@ -46,8 +46,9 @@ supports them; a lower `minHostVersion` does not override that API requirement.
 
 Node-local Computer Use plugins register one provider through
 `registerComputerUseProvider(api, provider)`. The helper owns the
-`screen.snapshot` and dangerous `computer.act` command registrations and the
-matching Gateway invoke policy; the provider owns availability, execution,
+`screen.snapshot`, dangerous `computer.act`, and dangerous `computer.execution`
+command registrations. The plugin must separately register their Gateway invoke
+policies; missing policies fail closed. The provider owns availability, execution,
 serialization, frame state, driver lifecycle, and cleanup.
 
 `capabilities()` is a synchronous declaration read. Keep it free of driver
@@ -62,3 +63,23 @@ compiled validators for the two command payloads and the snapshot result. A
 node host accepts one provider for the command pair; registering another
 provider conflicts with the existing command registration instead of creating
 a fallback stack.
+
+The ownership command inspects the helper's existing execution registry, without
+calling `openExecution`. Recovery must require an exact one-time human decision
+in the plugin's Gateway invoke policy before dispatch. The bundled CUA policy
+provides that integration. Do not authorize recovery from a model-supplied flag
+or infer liveness from timestamps. See [execution ownership](/nodes/computer-use#paired-node-execution-ownership)
+for the request, disclosure, and cleanup contracts.
+
+The Gateway supplies a versioned ownership envelope only to nodes advertising
+`computer.execution`. The transport removes the reserved command field and carries
+it outside `paramsJSON`. The node validates that event field and binds it to the
+invocation-scoped `computerExecutionV1` capability. The registration helper never
+trusts ownership claims inside command parameters; older Gateways cannot mint
+this authority by forwarding model arguments. Inspection and recovery require
+this capability, which fails after invocation closure or provider replacement.
+Older native command payloads and existing provider signatures stay unchanged.
+A random acquisition identity prevents a stale recovery request from closing a
+new acquisition that reused an execution UUID. This identity is a comparison
+value, not an authorization token. No ownership state is persisted outside the
+existing registration closure.

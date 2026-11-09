@@ -512,7 +512,12 @@ async function dispatchInvoke(
   try {
     const { pluginCommandIo: io, pluginCommandContext: context } = runtime;
     const pluginResult = await withNodeHostPluginInvocation(
-      { context, sessionKey: frame.sessionKey, signal: runtime.signal },
+      {
+        context,
+        sessionKey: frame.sessionKey,
+        signal: runtime.signal,
+        computerExecutionV1: frame.computerExecutionV1,
+      },
       async (invokeContext) =>
         command === NODE_WORKER_DESKTOP_COMPUTER_COMMAND
           ? await invokeNodeWorkerComputerCommand({

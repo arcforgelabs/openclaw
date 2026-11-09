@@ -1,4 +1,5 @@
 // Node-host plugin command contracts, including the opt-in duplex transport.
+import type { ComputerExecutionCallerV1 } from "../../packages/gateway-protocol/src/computer-execution-context.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 
 export type OpenClawPluginNodeHostCommandAvailabilityContext = {
@@ -32,6 +33,11 @@ export type OpenClawPluginNodeHostCommandContext = {
   sendNodeEvent(event: string, payload: unknown): Promise<unknown>;
   /** Agent session that owns this invocation, when the caller supplied one. */
   sessionKey?: string;
+  /** Versioned host capability; never reconstructed from command arguments. */
+  computerExecutionV1?: {
+    caller: ComputerExecutionCallerV1;
+    assertCurrent(): void;
+  };
   /** Aborts when the Gateway cancels this specific node-host invocation. */
   signal?: AbortSignal;
   /** Prepare local exec policy; call the returned guard synchronously immediately before spawn. */

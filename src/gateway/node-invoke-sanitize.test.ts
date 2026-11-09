@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeNodeInvokeParamsForForwarding } from "./node-invoke-sanitize.js";
+import type { GatewayClient } from "./server-methods/types.js";
 
 describe.each(["system.run.prepare", "system.run"])("%s execution context", (command) => {
   const context = { senderId: "sender-1", chatId: "chat-1", subagent: true };
@@ -46,4 +47,147 @@ it("routing context cannot approve a command", async () => {
       rawParams: { command: ["echo", "ok"], executionContext: { subagent: true }, approved: true },
     }),
   ).toMatchObject({ ok: false, message: "approval override requires params.runId" });
+});
+
+it.each(["screen.snapshot", "computer.act"])(
+  "%s never forwards caller-supplied owner or interruption authority",
+  async (command) => {
+    const result = await sanitizeNodeInvokeParamsForForwarding({
+      nodeId: "node-1",
+      command,
+      declaredCommands: ["computer.execution"],
+      client: null,
+      rawParams: {
+        action: "__recover_execution",
+        executionId: "123e4567-e89b-42d3-a456-426614174000",
+        computerExecutionCaller: {
+          sessionKey: "agent:main:private",
+          instanceId: "forged",
+          recoveryOperator: true,
+        },
+        interrupt: true,
+      },
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      params: { computerExecutionCaller: { recoveryOperator: false } },
+    });
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    expect((result.params as Record<string, unknown>).computerExecutionCaller).toEqual({
+      recoveryOperator: false,
+    });
+  },
+);
+
+it("binds acquisition metadata to the admitted run rather than execution IDs or supplied session hints", async () => {
+  const operationalRunInstance = { runId: "admitted-run", instanceId: "admitted-instance" };
+  const client = {
+    connId: "fixture",
+    connect: { scopes: ["operator.admin"] },
+    internal: {
+      syntheticClient: true,
+      agentRuntimeIdentity: {
+        kind: "agentRuntime",
+        agentId: "main",
+        sessionKey: "agent:main:admitted",
+        operationalRunInstance,
+        delegatedAuthority: {
+          kind: "local",
+          operationalRunInstance,
+          lifecycleGeneration: "generation",
+          claimId: "claim",
+        },
+      },
+    },
+  } as GatewayClient;
+  expect(
+    await sanitizeNodeInvokeParamsForForwarding({
+      nodeId: "agent-seat",
+      command: "screen.snapshot",
+      declaredCommands: ["computer.execution"],
+      client,
+      rawParams: {
+        executionId: "123e4567-e89b-42d3-a456-426614174000",
+        computerExecutionCaller: {
+          sessionKey: "agent:main:forged",
+          runId: "forged",
+          recoveryOperator: true,
+        },
+      },
+    }),
+  ).toEqual({
+    ok: true,
+    params: {
+      executionId: "123e4567-e89b-42d3-a456-426614174000",
+      computerExecutionCaller: {
+        sessionKey: "agent:main:admitted",
+        runId: "admitted-run",
+        instanceId: "admitted-instance",
+        recoveryOperator: false,
+      },
+    },
+  });
+});
+
+it("preserves legacy native payloads without the ownership command declaration", async () => {
+  const params = { executionId: "123e4567-e89b-42d3-a456-426614174000", screenIndex: 0 };
+  expect(
+    await sanitizeNodeInvokeParamsForForwarding({
+      nodeId: "native-node",
+      command: "screen.snapshot",
+      client: null,
+      rawParams: params,
+    }),
+  ).toEqual({ ok: true, params });
+});
+
+it.each([
+  [
+    { connId: "operator-one", connect: { scopes: ["operator.admin"] } },
+    "connection:operator-one",
+    true,
+  ],
+  [
+    { internal: { syntheticClient: true, pluginRuntimeOwnerId: "fixture-plugin" } },
+    "plugin:fixture-plugin",
+    false,
+  ],
+] as const)(
+  "retains a sessionless caller without fabricating session or run metadata",
+  async (client, callerId, recoveryOperator) => {
+    const result = await sanitizeNodeInvokeParamsForForwarding({
+      nodeId: "agent-seat",
+      command: "computer.execution",
+      client: client as GatewayClient,
+      rawParams: { action: "inspect" },
+    });
+    expect(result).toEqual({
+      ok: true,
+      params: { action: "inspect", computerExecutionCaller: { callerId, recoveryOperator } },
+    });
+  },
+);
+
+it("retains authenticated device ownership across fresh operator CLI connections without conflating devices", async () => {
+  const inspect = async (connId: string, id: string) =>
+    await sanitizeNodeInvokeParamsForForwarding({
+      nodeId: "seat",
+      command: "computer.execution",
+      rawParams: { action: "inspect" },
+      client: { connId, connect: { device: { id }, scopes: ["operator.admin"] } } as GatewayClient,
+    });
+  const first = await inspect("cli-one", "verified-device-one");
+  const second = await inspect("cli-two", "verified-device-one");
+  const other = await inspect("cli-three", "verified-device-two");
+  expect(first).toMatchObject({
+    ok: true,
+    params: { computerExecutionCaller: { callerId: "device:verified-device-one" } },
+  });
+  expect(second).toEqual(first);
+  expect(other).toMatchObject({
+    ok: true,
+    params: { computerExecutionCaller: { callerId: "device:verified-device-two" } },
+  });
 });

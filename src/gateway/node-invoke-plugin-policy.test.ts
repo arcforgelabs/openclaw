@@ -71,6 +71,28 @@ describe("applyPluginNodeInvokePolicy", () => {
     }
   });
 
+  it("requires an approval policy for computer ownership even without a local provider", async () => {
+    const { context, invoke } = createContext();
+    const result = await applyPluginNodeInvokePolicy({
+      context,
+      client: null,
+      nodeSession: createNodeSession(),
+      command: "computer.execution",
+      params: {
+        action: "recover",
+        executionId: "123e4567-e89b-42d3-a456-426614174000",
+        providerGeneration: "generation-one",
+        ownershipId: "ownership-one",
+      },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "PLUGIN_POLICY_MISSING",
+      details: { nodeCommandDispatched: false },
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("uses a matching plugin policy when one is registered", async () => {
     setDangerousDemoCommandRegistry([
       createDemoPolicy((ctx: OpenClawPluginNodeInvokePolicyContext) => {

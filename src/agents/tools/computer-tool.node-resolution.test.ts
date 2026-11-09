@@ -542,7 +542,7 @@ describe("createComputerTool node resolution", () => {
         if (closeFails) {
           await expect.soft(cleanup("completed")).rejects.toMatchObject({
             message: "computer: session desktop cleanup failed",
-            errors: [failure],
+            errors: [expect.objectContaining({ cause: failure })],
           });
         } else {
           await cleanup("completed");
@@ -574,7 +574,7 @@ describe("createComputerTool node resolution", () => {
   );
 
   it.each(["paired", "session"] as const)(
-    "reports cleanup failure only to the bound owner of a %s desktop",
+    "reports cleanup failure to the run owner of a %s desktop",
     async (targetScope) => {
       const failure = new Error("desktop disconnected during cleanup");
       listNodesMock.mockResolvedValue([macComputerNode()]);
@@ -605,14 +605,17 @@ describe("createComputerTool node resolution", () => {
       }
       await tool.execute("observe", { action: "screenshot" });
 
-      if (targetScope === "session") {
-        await expect(cleanup("completion")).rejects.toMatchObject({
-          message: "computer: session desktop cleanup failed",
-          errors: [failure],
-        });
-      } else {
-        await expect(cleanup("completion")).resolves.toBeUndefined();
-      }
+      await expect(cleanup("completion")).rejects.toMatchObject({
+        message: "computer: session desktop cleanup failed",
+        errors: [
+          expect.objectContaining({
+            message: expect.stringContaining(
+              targetScope === "session" ? "session-desktop" : "mac-1",
+            ),
+            cause: failure,
+          }),
+        ],
+      });
     },
   );
 

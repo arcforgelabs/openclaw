@@ -637,3 +637,28 @@ describe("gateway client capability tool filtering", () => {
     ).toBe(false);
   });
 });
+
+it("activates host-approved agent seats through the SDK-exported coding-tool factory", async () => {
+  const tools = createOpenClawCodingTools({
+    config: withDefaultRoster(undefined),
+    sessionKey: "agent:main:agent-seat-factory",
+    toolConstructionPlan: {
+      includeBaseCodingTools: false,
+      includeShellTools: false,
+      includeChannelTools: false,
+      includeOpenClawTools: true,
+      includePluginTools: false,
+    },
+    disableMessageTool: true,
+    wrapBeforeToolCallHook: false,
+    agentNodeCandidates: ["dedicated-agent-seat"],
+    registerRunCleanup: () => {},
+  });
+  // agent-harness exports this exact factory; construction must preserve the host's routing mode.
+  await expect(
+    expectToolNamed(tools, "computer").execute("before-acquisition", {
+      action: "type",
+      text: "not dispatched",
+    }),
+  ).rejects.toThrow("take a screenshot to acquire an eligible agent seat before any input");
+});

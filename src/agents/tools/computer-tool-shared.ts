@@ -109,6 +109,8 @@ export type ComputerContextEpoch = {
 
 export type ResolvedComputerTarget = {
   target: ComputerTarget;
+  /** First actual acquisition observation, consumed by this screenshot call. */
+  initialCapture?: ScreenshotCapture;
   frame?: ComputerFrame;
   capabilities?: ComputerUseCapabilityDescriptor;
 };

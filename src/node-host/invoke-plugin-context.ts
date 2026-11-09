@@ -1,3 +1,4 @@
+import type { ComputerExecutionCallerV1 } from "../../packages/gateway-protocol/src/computer-execution-context.js";
 import { warnPluginSdkDeprecation } from "../plugins/sdk-deprecation.js";
 import type { OpenClawPluginNodeHostCommandContext } from "../plugins/types.node-host.js";
 
@@ -7,10 +8,12 @@ export async function withNodeHostPluginInvocation<T>(
     context,
     sessionKey,
     signal,
+    computerExecutionV1,
   }: {
     context?: OpenClawPluginNodeHostCommandContext;
     sessionKey?: string | null;
     signal?: AbortSignal;
+    computerExecutionV1?: ComputerExecutionCallerV1;
   },
   operation: (context: OpenClawPluginNodeHostCommandContext | undefined) => Promise<T>,
 ): Promise<T> {
@@ -28,11 +31,29 @@ export async function withNodeHostPluginInvocation<T>(
     }
   };
   const invokeContext =
-    context && (sessionKey || signal || acquireManagedWorkspace || acquireManagedWorkspaceAsync)
+    context &&
+    (sessionKey ||
+      signal ||
+      computerExecutionV1 ||
+      acquireManagedWorkspace ||
+      acquireManagedWorkspaceAsync)
       ? {
           ...context,
           ...(sessionKey ? { sessionKey } : {}),
           ...(signal ? { signal } : {}),
+          ...(computerExecutionV1
+            ? {
+                computerExecutionV1: {
+                  caller: computerExecutionV1,
+                  assertCurrent: () => {
+                    signal?.throwIfAborted();
+                    if (!pluginInvocationActive) {
+                      throw new Error("computer execution invocation authority is closed");
+                    }
+                  },
+                },
+              }
+            : {}),
           ...(acquireManagedWorkspaceAsync
             ? {
                 acquireManagedWorkspaceAsync: async (

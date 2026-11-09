@@ -5,12 +5,14 @@ import {
 } from "../../packages/gateway-protocol/src/system-run-execution-context.js";
 import type { ExecApprovalManager } from "./exec-approval-manager.js";
 import { sanitizeSystemRunParamsForForwarding } from "./node-invoke-system-run-approval.js";
+import { hasGatewayAdminScope } from "./operator-scopes.js";
 import type { GatewayClient } from "./server-methods/types.js";
 
 export async function sanitizeNodeInvokeParamsForForwarding(opts: {
   nodeId: string;
   command: string;
   caps?: readonly string[];
+  declaredCommands?: readonly string[];
   rawParams: unknown;
   client: GatewayClient | null;
   execApprovalManager?: ExecApprovalManager;
@@ -30,6 +32,54 @@ export async function sanitizeNodeInvokeParamsForForwarding(opts: {
   }
   if (opts.command === "system.run") {
     return sanitizeSystemRunParamsForForwarding(opts);
+  }
+  if (
+    opts.command === "computer.execution" ||
+    ((opts.command === "screen.snapshot" || opts.command === "computer.act") &&
+      opts.declaredCommands?.includes("computer.execution"))
+  ) {
+    const raw = asNullableRecord(opts.rawParams);
+    if (raw) {
+      // Never accept ownership provenance or recovery authority from tool arguments.
+      const { computerExecutionCaller: _ignored, ...params } = raw;
+      const identity = opts.client?.internal?.agentRuntimeIdentity;
+      const callerId = identity
+        ? undefined
+        : !opts.client?.internal?.syntheticClient && opts.client?.connect?.device?.id
+          ? "device:" + opts.client.connect.device.id
+          : opts.client?.internal?.pluginRuntimeOwnerId
+            ? "plugin:" + opts.client.internal.pluginRuntimeOwnerId
+            : opts.client?.connId
+              ? "connection:" + opts.client.connId
+              : undefined;
+      return {
+        ok: true,
+        params: {
+          ...params,
+          computerExecutionCaller: {
+            ...(identity
+              ? {
+                  sessionKey: identity.sessionKey,
+                  runId: identity.operationalRunInstance.runId,
+                  instanceId: identity.operationalRunInstance.instanceId,
+                }
+              : {}),
+            ...(!identity && callerId ? { callerId } : {}),
+            recoveryOperator:
+              !identity &&
+              !opts.client?.internal?.syntheticClient &&
+              hasGatewayAdminScope(opts.client),
+          },
+        },
+      };
+    }
+  }
+  if (opts.command === "screen.snapshot" || opts.command === "computer.act") {
+    const raw = asNullableRecord(opts.rawParams);
+    if (raw && Object.hasOwn(raw, "computerExecutionCaller")) {
+      const { computerExecutionCaller: _ignored, ...params } = raw;
+      return { ok: true, params };
+    }
   }
   return { ok: true, params: opts.rawParams };
 }

@@ -41,22 +41,52 @@ export function registerComputerUseProvider(
   api: ComputerUseRegistrationApi,
   provider: ComputerUseProvider,
 ): void {
-  let execution: { id: string; promise: Promise<ComputerUseExecution> } | undefined;
+  type Caller = NonNullable<OpenClawPluginNodeHostCommandContext["computerExecutionV1"]>["caller"];
+  type Execution = {
+    id: string;
+    generation: string;
+    ownershipId: string;
+    caller?: Caller;
+    acquiredAt: number;
+    lastCommandAt: number;
+    promise: Promise<ComputerUseExecution>;
+  };
+  let execution: Execution | undefined;
   let closingPromise: Promise<void> | undefined;
   let pendingClose: Promise<void> | undefined;
   const hasActiveWork = () =>
     execution !== undefined || closingPromise !== undefined || pendingClose !== undefined;
 
-  const executionEnvelopeFromParams = (paramsJSON: string | null | undefined) => {
+  const executionEnvelopeFromParams = (
+    paramsJSON: string | null | undefined,
+    context?: OpenClawPluginNodeHostCommandContext,
+  ) => {
     let value: unknown;
     try {
       value = JSON.parse(paramsJSON ?? "{}");
     } catch {
       throw new Error("COMPUTER_INVALID_REQUEST: params must be valid JSON");
     }
+    context?.computerExecutionV1?.assertCurrent();
+    const caller: Caller | undefined = context?.computerExecutionV1?.caller;
+    // Host-owned envelope metadata must never reach native provider argument parsers.
+    const commandValue = isRecord(value)
+      ? Object.fromEntries(
+          Object.entries(value).filter(
+            ([key]) => key !== "computerExecutionCaller" && key !== "providerGeneration",
+          ),
+        )
+      : value;
     const executionId = isRecord(value) ? value.executionId : undefined;
+    const providerGeneration = isRecord(value) ? value.providerGeneration : undefined;
+    if (
+      providerGeneration !== undefined &&
+      (typeof providerGeneration !== "string" || !providerGeneration)
+    ) {
+      throw new Error("COMPUTER_INVALID_REQUEST: providerGeneration must be nonempty");
+    }
     if (executionId === undefined) {
-      return { executionId: undefined, value };
+      return { executionId: undefined, value: commandValue, caller, providerGeneration };
     }
     if (
       typeof executionId !== "string" ||
@@ -64,22 +94,46 @@ export function registerComputerUseProvider(
     ) {
       throw new Error("COMPUTER_INVALID_REQUEST: executionId is required");
     }
-    return { executionId, value };
+    return { executionId, value: commandValue, caller, providerGeneration };
+  };
+  const assertProviderGeneration = (expected: string | undefined) => {
+    if (expected !== undefined && provider.capabilities().provider.generation !== expected) {
+      throw new Error("COMPUTER_OWNER_CHANGED: provider changed before desktop operation");
+    }
+  };
+  const ownsExecution = (current: Execution, caller?: Caller) => {
+    if (current.caller?.instanceId) {
+      return current.caller.instanceId === caller?.instanceId;
+    }
+    if (current.caller?.callerId) {
+      return current.caller.callerId === caller?.callerId;
+    }
+    // Legacy internal carriers retain their execution-ID capability. A new
+    // caller cannot adopt Unknown work merely by reading its execution ID.
+    return current.caller === undefined && caller === undefined;
   };
   const getExecution = async (
     executionId: string,
     context?: OpenClawPluginNodeHostCommandContext,
+    caller?: Caller,
   ) => {
     // An earlier queued close can replace the barrier while this acquisition resumes.
     for (let barrier = closingPromise; barrier !== undefined; barrier = closingPromise) {
       await barrier;
     }
+    context?.computerExecutionV1?.assertCurrent();
     if (execution && execution.id !== executionId) {
       throw new Error("COMPUTER_HOST_BUSY: another provider execution owns this computer");
     }
+    if (execution && !ownsExecution(execution, caller)) {
+      throw new Error("COMPUTER_OWNER_FORBIDDEN: this execution belongs to another run");
+    }
     if (!execution) {
+      const generation = provider.capabilities().provider.generation;
       const opened = provider.openExecution(
-        context?.sessionKey ? { executionId, sessionKey: context.sessionKey } : { executionId },
+        caller?.sessionKey || context?.sessionKey
+          ? { executionId, sessionKey: caller?.sessionKey ?? context?.sessionKey }
+          : { executionId },
       );
       // A failed open must not wedge the provider behind a cached rejection;
       // the next command call retries openExecution instead.
@@ -88,13 +142,23 @@ export function registerComputerUseProvider(
           execution = undefined;
         }
       });
-      execution = { id: executionId, promise: opened };
+      execution = {
+        id: executionId,
+        generation,
+        ownershipId: randomUUID(),
+        caller,
+        acquiredAt: Date.now(),
+        lastCommandAt: Date.now(),
+        promise: opened,
+      };
     }
+    execution.lastCommandAt = Date.now();
     return execution.promise;
   };
   const closeCurrentExecution = (
     executionId: string | undefined,
     reason: string,
+    guard?: () => void,
   ): Promise<void> => {
     const current = execution;
     if (!current || (executionId !== undefined && current.id !== executionId)) {
@@ -104,7 +168,10 @@ export function registerComputerUseProvider(
       return pendingClose;
     }
     // Watcher stop and disconnect must join the same physical close before either yields.
-    const close = current.promise.then(async (opened) => await opened.close(reason));
+    const close = current.promise.then(async (opened) => {
+      guard?.();
+      await opened.close(reason);
+    });
     pendingClose = close;
     closingPromise = close;
     void close.then(
@@ -125,9 +192,13 @@ export function registerComputerUseProvider(
     );
     return close;
   };
-  const closeExecution = (executionId: string | undefined, reason: string): Promise<void> => {
+  const closeExecution = (
+    executionId: string | undefined,
+    reason: string,
+    guard?: () => void,
+  ): Promise<void> => {
     if (!pendingClose) {
-      return closeCurrentExecution(executionId, reason);
+      return closeCurrentExecution(executionId, reason, guard);
     }
     const joined = (async () => {
       // Earlier queued operations can publish another close after each barrier settles.
@@ -142,7 +213,7 @@ export function registerComputerUseProvider(
           return;
         }
       }
-      await closeCurrentExecution(executionId, reason);
+      await closeCurrentExecution(executionId, reason, guard);
     })();
     // Watcher cleanup may initiate an unawaited close; joiners still receive the actual failure.
     void joined.catch(() => {});
@@ -183,20 +254,27 @@ export function registerComputerUseProvider(
     },
     onDisconnect: async () => await closeExecution(undefined, "gateway-disconnect"),
     handle: async (paramsJSON, _io, context) => {
-      const envelope = executionEnvelopeFromParams(paramsJSON);
+      const envelope = executionEnvelopeFromParams(paramsJSON, context);
+      assertProviderGeneration(envelope.providerGeneration);
       if (envelope.executionId) {
-        return await (
-          await getExecution(envelope.executionId, context)
-        ).snapshot(paramsJSON, context?.signal);
+        const opened = await getExecution(envelope.executionId, context, envelope.caller);
+        context?.signal?.throwIfAborted();
+        context?.computerExecutionV1?.assertCurrent();
+        assertProviderGeneration(envelope.providerGeneration);
+        return await opened.snapshot(JSON.stringify(envelope.value), context?.signal);
+      }
+      if (hasActiveWork()) {
+        throw new Error("COMPUTER_HOST_BUSY: another provider execution owns this computer");
       }
       const executionId = randomUUID();
-      const opened = await provider.openExecution(
-        context?.sessionKey ? { executionId, sessionKey: context.sessionKey } : { executionId },
-      );
+      const opened = await getExecution(executionId, context, envelope.caller);
       try {
-        return await opened.snapshot(paramsJSON, context?.signal);
+        context?.signal?.throwIfAborted();
+        context?.computerExecutionV1?.assertCurrent();
+        assertProviderGeneration(envelope.providerGeneration);
+        return await opened.snapshot(JSON.stringify(envelope.value), context?.signal);
       } finally {
-        await opened.close("snapshot-complete");
+        await closeExecution(executionId, "snapshot-complete");
       }
     },
   });
@@ -208,24 +286,163 @@ export function registerComputerUseProvider(
     isAvailable: () => provider.isAvailable(),
     hasActiveWork,
     handle: async (paramsJSON, _io, context) => {
-      const envelope = executionEnvelopeFromParams(paramsJSON);
+      const envelope = executionEnvelopeFromParams(paramsJSON, context);
+      assertProviderGeneration(envelope.providerGeneration);
       if (!envelope.executionId) {
         throw new Error("COMPUTER_INVALID_REQUEST: executionId is required");
       }
       if (isRecord(envelope.value) && envelope.value.action === "__close_execution") {
         const reason = envelope.value.reason;
+        const current = execution;
+        if (current?.id === envelope.executionId && !ownsExecution(current, envelope.caller)) {
+          throw new Error(
+            "COMPUTER_OWNER_FORBIDDEN: use approved recovery for another run's execution",
+          );
+        }
+        const expectedGeneration = envelope.providerGeneration;
+        if (
+          expectedGeneration !== undefined &&
+          current?.id === envelope.executionId &&
+          (current.generation !== expectedGeneration ||
+            provider.capabilities().provider.generation !== expectedGeneration)
+        ) {
+          throw new Error("COMPUTER_OWNER_CHANGED: provider changed before cleanup");
+        }
+        const released = current?.id === envelope.executionId;
+        const assertCurrentGeneration =
+          expectedGeneration === undefined && !context?.computerExecutionV1
+            ? undefined
+            : () => {
+                context?.computerExecutionV1?.assertCurrent();
+                if (
+                  expectedGeneration !== undefined &&
+                  (execution !== current ||
+                    current?.generation !== expectedGeneration ||
+                    provider.capabilities().provider.generation !== expectedGeneration)
+                ) {
+                  throw new Error("COMPUTER_OWNER_CHANGED: provider changed before cleanup");
+                }
+              };
         await closeExecution(
           envelope.executionId,
           typeof reason === "string" && reason.trim() ? reason.slice(0, 64) : "completion",
+          assertCurrentGeneration,
         );
-        return JSON.stringify({ ok: true });
+        return JSON.stringify({
+          ok: true,
+          ...(expectedGeneration !== undefined ? { released } : {}),
+        });
       }
-      return await (
-        await getExecution(envelope.executionId, context)
-      ).act(paramsJSON, context?.signal);
+      const opened = await getExecution(envelope.executionId, context, envelope.caller);
+      context?.signal?.throwIfAborted();
+      context?.computerExecutionV1?.assertCurrent();
+      assertProviderGeneration(envelope.providerGeneration);
+      return await opened.act(JSON.stringify(envelope.value), context?.signal);
     },
   });
-  // The provider plugin must also register its dangerous `computer.act` invoke
+  api.registerNodeHostCommand({
+    command: "computer.execution",
+    cap: "computer",
+    dangerous: true,
+    isAvailable: () => provider.isAvailable(),
+    hasActiveWork,
+    handle: async (paramsJSON, _io, context) => {
+      const envelope = executionEnvelopeFromParams(paramsJSON, context);
+      assertProviderGeneration(envelope.providerGeneration);
+      if (!context?.computerExecutionV1) {
+        throw new Error(
+          "COMPUTER_OWNERSHIP_UNAVAILABLE: authenticated ownership requires an updated Gateway",
+        );
+      }
+      const ownership = context.computerExecutionV1;
+      if (isRecord(envelope.value) && envelope.value.action === "inspect") {
+        const current = execution;
+        const generation = provider.capabilities().provider.generation;
+        if (!current) {
+          return JSON.stringify({ state: "free", providerGeneration: generation });
+        }
+        const canRead =
+          current.caller?.sessionKey !== undefined &&
+          current.caller.sessionKey === envelope.caller?.sessionKey;
+        return JSON.stringify({
+          state: "owned",
+          executionId: current.id,
+          ownershipId: current.ownershipId,
+          providerGeneration: current.generation,
+          acquiredAt: current.acquiredAt,
+          lastCommandAt: current.lastCommandAt,
+          activity: "unknown",
+          ...(canRead
+            ? {
+                owner: {
+                  sessionKey: current.caller?.sessionKey,
+                  runId: current.caller?.runId,
+                  instanceId: current.caller?.instanceId,
+                },
+              }
+            : {}),
+        });
+      }
+      if (isRecord(envelope.value) && envelope.value.action === "recover") {
+        if (!envelope.executionId) {
+          throw new Error("COMPUTER_INVALID_REQUEST: executionId is required for recovery");
+        }
+        const expected = execution;
+        const generation = envelope.providerGeneration;
+        const ownershipId = envelope.value.ownershipId;
+        if (typeof ownershipId !== "string" || !ownershipId) {
+          throw new Error(
+            "COMPUTER_INVALID_REQUEST: ownershipId from inspection is required for recovery",
+          );
+        }
+        if (typeof generation !== "string" || !generation) {
+          throw new Error("COMPUTER_INVALID_REQUEST: providerGeneration is required for recovery");
+        }
+        const assertExpectedOwner = () => {
+          ownership.assertCurrent();
+          context.signal?.throwIfAborted();
+          if (
+            !expected ||
+            execution !== expected ||
+            expected.id !== envelope.executionId ||
+            expected.ownershipId !== ownershipId ||
+            expected.generation !== generation ||
+            provider.capabilities().provider.generation !== generation
+          ) {
+            throw new Error("COMPUTER_OWNER_CHANGED: inspect ownership again before recovery");
+          }
+          if (
+            !envelope.caller?.recoveryOperator &&
+            (!expected.caller?.sessionKey ||
+              expected.caller.sessionKey !== envelope.caller?.sessionKey)
+          ) {
+            throw new Error(
+              "COMPUTER_OWNER_FORBIDDEN: recovery requires the owning session or an operator",
+            );
+          }
+        };
+        assertExpectedOwner();
+        // Do not join another close and claim its no-op as this request's release.
+        if (pendingClose) {
+          throw new Error("COMPUTER_CLOSE_PENDING: wait for cleanup, then inspect ownership again");
+        }
+        await closeCurrentExecution(
+          envelope.executionId,
+          "human-approved-recovery",
+          assertExpectedOwner,
+        );
+        return JSON.stringify({
+          ok: true,
+          released: true,
+          ownershipId,
+          executionId: envelope.executionId,
+          providerGeneration: generation,
+        });
+      }
+      throw new Error("COMPUTER_INVALID_REQUEST: expected inspect or recover with exact ownership");
+    },
+  });
+  // The provider plugin must also register its dangerous computer.act and computer.execution invoke
   // policy with the full plugin API. Forgetting it fails closed: the Gateway
   // rejects dangerous plugin commands that lack a registered policy.
 }

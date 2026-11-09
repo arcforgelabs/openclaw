@@ -39,8 +39,8 @@ Core validates the shared `show_widget` schema, composes the bounded HTML docume
 
 Computer Use providers use `registerComputerUseProvider(api, provider)` from
 `openclaw/plugin-sdk/computer-use`. It registers the shared
-`screen.snapshot`/`computer.act` node-host envelope once while the provider
-keeps its driver, frame, availability, and execution lifecycle local.
+`screen.snapshot`/`computer.act` node-host envelope and `computer.execution`
+ownership command once while the provider keeps its driver, frame, availability, and execution lifecycle local.
 Its optional `prepare(context)` hook settles native startup before the node's
 first capability declaration, without opening a Computer Use execution.
 

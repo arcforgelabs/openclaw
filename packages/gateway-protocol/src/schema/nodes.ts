@@ -1,4 +1,5 @@
 import { type Static, Type } from "typebox";
+import { ComputerExecutionCallerV1Schema } from "../computer-execution-context.js";
 import { NODE_PERMISSION_STATES } from "../node-permissions.js";
 import { NODE_PRESENCE_ALIVE_REASONS } from "../node-presence.js";
 import { closedObject } from "./closed-object.js";
@@ -242,6 +243,7 @@ export const NodeInvokeRequestEventSchema = closedObject({
   nodeId: NonEmptyString,
   command: NonEmptyString,
   paramsJSON: Type.Optional(Type.String()),
+  computerExecutionV1: Type.Optional(ComputerExecutionCallerV1Schema),
   timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
   idempotencyKey: Type.Optional(NonEmptyString),
 });

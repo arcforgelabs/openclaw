@@ -94,6 +94,8 @@ export type OpenClawSharedToolsOptions = {
   /** Mutable model-context generation used to expire screenshot coordinate frames. */
   computerContextEpoch?: { value: number };
   computerExecutionId?: string;
+  /** Host-approved ordered dedicated agent-seat node IDs; never include Primary. */
+  agentNodeCandidates?: readonly string[];
   /** Registers run-owned cleanup for tools that hold node resources. */
   registerRunCleanup?: (cleanup: (reason: string) => Promise<void>) => void;
   inboundEventKind?: InboundEventKind;

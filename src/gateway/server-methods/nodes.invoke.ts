@@ -6,6 +6,10 @@ import {
   missingScopeErrorShape,
   validateNodeInvokeParams,
 } from "../../../packages/gateway-protocol/src/index.js";
+import {
+  getAgentRunContext,
+  getAgentRunContextOwnerStatus,
+} from "../../infra/agent-run-registry.js";
 import { captureNodePairingGeneration } from "../../infra/device-pairing-node-state.js";
 import {
   isAdminOnlyNodeInvokeCommand,
@@ -173,7 +177,64 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
       result: { payload?: unknown; payloadJSON?: string | null },
       responsePayload: "original" | "decoded",
     ) => {
-      const payload = result.payloadJSON ? parseGatewayPayload(result.payloadJSON) : result.payload;
+      let payload = result.payloadJSON ? parseGatewayPayload(result.payloadJSON) : result.payload;
+      let payloadJSON = result.payloadJSON ?? null;
+      const inspection =
+        command === "computer.execution" && asOptionalObjectRecord(p.params)?.action === "inspect";
+      if (command === "computer.execution") {
+        const authorityError = resolveNodeInvokeRuntimeAuthorityError({ context, client });
+        if (authorityError) {
+          respond(false, undefined, errorShape(ErrorCodes.FORBIDDEN, authorityError));
+          return;
+        }
+      }
+      const record = inspection ? asOptionalObjectRecord(payload) : undefined;
+      if (record?.state === "owned") {
+        const owner = asOptionalObjectRecord(record.owner);
+        const readable =
+          typeof owner?.sessionKey === "string" &&
+          owner.sessionKey === client?.internal?.agentRuntimeIdentity?.sessionKey;
+        // Presentation reads the existing claim only; inspection must not assert a
+        // source capability that can retire another run as a side effect.
+        const run =
+          readable && typeof owner?.runId === "string"
+            ? getAgentRunContext(owner.runId)
+            : undefined;
+        const authority = run?.delegatedAuthority;
+        const active =
+          authority &&
+          run?.sessionKey === owner?.sessionKey &&
+          authority.operationalRunInstance.runId === owner?.runId &&
+          authority.operationalRunInstance.instanceId === owner?.instanceId &&
+          getAgentRunContextOwnerStatus(
+            authority.operationalRunInstance.runId,
+            authority.claimId,
+            authority.lifecycleGeneration,
+          ) === "active";
+        const { owner: _privateOwner, ...publicRecord } = record;
+        payload = {
+          ...publicRecord,
+          activity: active ? "active" : "unknown",
+          ...(active
+            ? { activitySource: "gateway-admitted-instance" }
+            : {
+                activityUnknownReason: readable
+                  ? "no-current-exact-admitted-instance"
+                  : "owner-session-not-readable",
+              }),
+          ...(readable
+            ? {
+                owner: {
+                  ...owner,
+                  ...(active && run?.agentId ? { agentId: run.agentId } : {}),
+                  sessionTitleState: "unknown",
+                  sessionTitleUnknownReason: "requires-authorized-sessions.describe",
+                },
+              }
+            : {}),
+        };
+        payloadJSON = JSON.stringify(payload);
+      }
       emitTalkPttNodeEvent({ context, nodeId, command, payload });
       respond(
         true,
@@ -181,8 +242,8 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
           ok: true,
           nodeId,
           command,
-          payload: responsePayload === "decoded" ? payload : result.payload,
-          payloadJSON: result.payloadJSON ?? null,
+          payload: inspection || responsePayload === "decoded" ? payload : result.payload,
+          payloadJSON,
         },
         undefined,
       );
@@ -369,6 +430,7 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
           nodeId,
           command,
           caps: nodeSession.caps,
+          declaredCommands: nodeSession.commands,
           rawParams: p.params,
           client,
           execApprovalManager: context.execApprovalManager,

@@ -254,6 +254,7 @@ export async function invokeRegisteredNodeHostCommand(
   }
   let active = true;
   const registeredCommand = match.command;
+  const computerExecutionV1 = context?.computerExecutionV1;
   const pluginRecord = registry?.plugins.find((record) => record.id === match.pluginId);
   const assertActive = () => {
     if (
@@ -284,6 +285,17 @@ export async function invokeRegisteredNodeHostCommand(
       context && readCurrent
         ? {
             ...context,
+            ...(computerExecutionV1
+              ? {
+                  computerExecutionV1: {
+                    caller: computerExecutionV1.caller,
+                    assertCurrent: () => {
+                      assertActive();
+                      computerExecutionV1.assertCurrent();
+                    },
+                  },
+                }
+              : {}),
             prepareExecAuthorization: (source: "human-approved" | "session-full") =>
               preparePluginExecAuthorization({
                 source,

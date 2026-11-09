@@ -71,6 +71,8 @@ function prepareComputerArguments(args: unknown): unknown {
 export function createComputerTool(options?: {
   config?: OpenClawConfig;
   computerExecutionId?: string;
+  /** Per-run host-approved agent seats; disables Gateway/default-node fallback. */
+  agentNodeCandidates?: readonly string[];
   /** Stable run scope used to deduplicate a replayed model tool call on the node. */
   idempotencyScope?: string;
   /** Tracks whether the current screenshot pixels still reach model context. */
@@ -121,6 +123,8 @@ export function createComputerTool(options?: {
 
   const session = new ComputerToolSession({
     executionId,
+    agentNodeCandidates: options?.agentNodeCandidates,
+    referenceWidth,
     idempotencyScope: options?.idempotencyScope,
     contextEpoch: options?.contextEpoch,
     transport: options?.transport,

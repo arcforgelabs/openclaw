@@ -14,6 +14,11 @@ import {
   parseScreenSnapshotResult,
 } from "../../plugins/computer-use-contract.js";
 import {
+  guardAgentSeatBinding,
+  resolveAgentSeatTarget,
+  type AgentSeatSelection,
+} from "./computer-tool-agent-seat.js";
+import {
   NOT_COMPUTER_CAPABLE_HINT,
   resolveComputerBinding,
   type ComputerBinding,
@@ -117,16 +122,20 @@ function isButtonAlreadyReleasedError(err: unknown): boolean {
 
 export class ComputerToolSession {
   private selectedBinding: ComputerBinding | undefined;
+  private readonly agentSeatSelection: AgentSeatSelection | undefined;
   private observationState: ComputerObservationState | undefined;
   private computerState: ComputerState = { kind: "unbound" };
   private heldButtonTarget: ComputerTarget | undefined;
   private readonly executionTargets = new Map<string, ComputerBinding>();
   private readonly cleanupBindings = new Set<ComputerBinding>();
+  private readonly acquiredTargets = new Set<string>();
   private disposePromise: Promise<void> | undefined;
 
   constructor(
     private readonly options: {
       executionId: string;
+      agentNodeCandidates?: readonly string[];
+      referenceWidth?: number;
       idempotencyScope?: string;
       contextEpoch?: ComputerContextEpoch;
       transport?: ComputerToolTransport;
@@ -136,6 +145,20 @@ export class ComputerToolSession {
       getOperationQueue: () => Promise<unknown>;
     },
   ) {
+    if (options.agentNodeCandidates !== undefined) {
+      if (
+        options.transport ||
+        !options.registerRunCleanup ||
+        options.agentNodeCandidates.length === 0 ||
+        options.agentNodeCandidates.some((id) => !id || id.trim() !== id) ||
+        new Set(options.agentNodeCandidates).size !== options.agentNodeCandidates.length
+      ) {
+        throw new Error(
+          "computer: agent seats require a nonempty unique host-approved list and run cleanup, without a session desktop",
+        );
+      }
+      this.agentSeatSelection = { candidates: [...options.agentNodeCandidates], locked: false };
+    }
     options.registerRunCleanup?.((reason) => this.dispose(reason));
   }
 
@@ -252,6 +275,29 @@ export class ComputerToolSession {
     signal?: AbortSignal;
   }): Promise<ResolvedComputerTarget> {
     this.assertOpen();
+    if (!this.agentSeatSelection) {
+      return await this.resolveExplicitTarget(params);
+    }
+    return await resolveAgentSeatTarget(this.agentSeatSelection, params, {
+      selected: () => this.selectedBinding,
+      resolve: (request) => this.resolveExplicitTarget(request),
+      capture: (target, width, signal) => this.captureScreenshot(target, width, signal),
+      referenceWidth: this.options.referenceWidth ?? 1280,
+      forgetBusy: () => {
+        if (this.selectedBinding) {
+          this.executionTargets.delete(computerHostKey(this.selectedBinding.host));
+        }
+      },
+    });
+  }
+
+  private async resolveExplicitTarget(params: {
+    action: ComputerToolAction;
+    input: Record<string, unknown>;
+    gatewayOpts: GatewayCallOptions;
+    signal?: AbortSignal;
+  }): Promise<ResolvedComputerTarget> {
+    this.assertOpen();
     const explicitHost = params.input.target;
     if (explicitHost !== undefined && explicitHost !== "gateway" && explicitHost !== "node") {
       throw new Error("computer target must be gateway or node");
@@ -348,7 +394,10 @@ export class ComputerToolSession {
         "Computer target is bound to its Gateway connection; start a new execution to change it",
       );
     }
-    const binding = refreshNode ? resolvedBinding : (existingBinding ?? resolvedBinding);
+    let binding = refreshNode ? resolvedBinding : (existingBinding ?? resolvedBinding);
+    if (this.agentSeatSelection && !existingBinding) {
+      binding = guardAgentSeatBinding(binding);
+    }
     // Cleanup drains the action queue before these bindings. Take custody before
     // the closed-session fence can reject a newly resolved binding.
     this.executionTargets.set(targetKey, binding);
@@ -465,6 +514,12 @@ export class ComputerToolSession {
     signal?: AbortSignal,
   ): Promise<ScreenshotCapture> {
     this.assertOpen();
+    signal?.throwIfAborted();
+    if (resolved.initialCapture) {
+      const capture = resolved.initialCapture;
+      delete resolved.initialCapture;
+      return capture;
+    }
     this.prepareScreenshotTarget(resolved.target);
     const commandParams: ScreenSnapshotParams = {
       executionId: this.options.executionId,
@@ -516,6 +571,7 @@ export class ComputerToolSession {
         }
         payload = await capture(refreshed);
       }
+      this.acquiredTargets.add(targetKey);
       const parsed = parseScreenSnapshotResult(payload);
       if (!parsed.displayFrameId) {
         throw new Error(
@@ -583,8 +639,9 @@ export class ComputerToolSession {
     }
     let actResult: ComputerActResult;
     try {
-      actResult = parseComputerActPayload(
-        await this.executionTargets.get(computerHostKey(params.resolved.target))!.invoke({
+      const payload = await this.executionTargets
+        .get(computerHostKey(params.resolved.target))!
+        .invoke({
           command: COMPUTER_ACT_COMMAND,
           commandParams,
           timeoutMs: invokeTimeoutMs,
@@ -595,8 +652,9 @@ export class ComputerToolSession {
             purpose: params.purpose,
           }),
           signal: params.signal,
-        }),
-      );
+        });
+      this.acquiredTargets.add(computerHostKey(params.resolved.target));
+      actResult = parseComputerActPayload(payload);
     } catch (err) {
       if (params.wireParams.action === "left_mouse_down" && isDefinitiveComputerActRejection(err)) {
         this.heldButtonTarget = undefined;
@@ -629,25 +687,42 @@ export class ComputerToolSession {
         this.cleanupBindings.clear();
         const results = await Promise.allSettled(
           targets.map(async (binding) => {
-            await binding.invoke({
+            const receipt = await binding.invoke({
               command: COMPUTER_ACT_COMMAND,
               commandParams: {
                 action: "__close_execution",
                 executionId: this.options.executionId,
                 reason,
+                ...(binding.executionOwnership
+                  ? { providerGeneration: binding.capabilities?.provider.generation }
+                  : {}),
               },
               idempotencyKey: `computer.close:${this.options.executionId}:${computerHostKey(binding.host)}`,
             });
+            const release = typeof receipt === "string" ? JSON.parse(receipt) : receipt;
+            if (
+              binding.executionOwnership &&
+              this.acquiredTargets.has(computerHostKey(binding.host)) &&
+              (!isRecord(release) || release.released !== true)
+            ) {
+              throw new Error(
+                "computer: cleanup did not confirm release; inspect ownership before recovery",
+              );
+            }
           }),
         );
-        // Ordinary paired nodes can disconnect during best-effort cleanup.
-        // A bound session owner must observe cleanup failure before acknowledging its turn.
-        const ownsCleanup = (binding: ComputerBinding | undefined) =>
-          this.options.transport ||
-          binding?.host.host === "gateway" ||
-          (binding?.host.host === "node" && binding.host.environmentId !== undefined);
         const failures = results.flatMap((result, index) =>
-          result.status === "rejected" && ownsCleanup(targets[index]) ? [result.reason] : [],
+          result.status === "rejected"
+            ? [
+                new Error(
+                  "computer: cleanup failed for " +
+                    computerHostKey(targets[index]!.host) +
+                    " execution " +
+                    this.options.executionId,
+                  { cause: result.reason },
+                ),
+              ]
+            : [],
         );
         if (failures.length > 0) {
           throw new AggregateError(failures, "computer: session desktop cleanup failed");

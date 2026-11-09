@@ -266,6 +266,52 @@ A CUA snapshot without an `executionId` is a standalone capture: its temporary e
 
 Reads reuse `screen.snapshot`; there is no second capture path. See [Camera and screen nodes](/nodes/camera) for the shared capture command.
 
+## Paired-node execution ownership
+
+Providers registered through the Computer Use SDK helper also advertise the
+`computer.execution` node command. It uses the existing `node.invoke` transport,
+not a separate desktop allocator or VNC connection. The command needs its own
+pairing approval and explicit command allowlist entry; existing computer command
+grants do not automatically grant recovery. Other native providers may not
+implement it. Do not treat an unsupported command or a transport failure as free.
+
+Invoke `computer.execution` on the exact node with `{ "action": "inspect" }`.
+This reads the existing execution registry without opening a provider execution
+or taking a screenshot. A successful response is `free` or `owned`, with the
+provider generation. An owned response also contains the execution UUID, an
+acquisition-specific `ownershipId`, and acquisition/last-command timestamps.
+The outer `node.invoke` response identifies the exact node. Failed or unavailable
+inspection means ownership is **unknown**, never free.
+
+The Gateway records admitted session/run identity at acquisition, not from model
+arguments or execution-ID guesses. Only that same authenticated session receives
+its session key, run ID, and run-instance ID. Other callers receive no private
+session metadata. Operator calls and older Gateway acquisitions may have no
+admitted run identity. Session titles and run activity are not resolved by the
+node: activity remains `unknown`. Timestamps, a quiet screen, a human login wait,
+or a disconnected viewer never establish that work has finished.
+
+For recovery, invoke the same node/command with `action: "recover"` and the exact
+`executionId`, `providerGeneration`, and `ownershipId` from inspection. The bundled
+CUA policy requires a one-time human interruption approval naming that target and
+warning that work may be lost. Missing approval support, denial, and standing
+approval do not authorize recovery. A caller must also be the owning session or
+an authenticated administrator. No `interrupt` boolean bypass exists.
+
+Recovery rechecks the same acquisition and provider generation immediately before
+physical close and reuses ordinary execution cleanup. Changed ownership refuses
+the request. A successful release returns `released: true`; inspect again before
+new work. A successful no-op is not proof of release. Normal cleanup errors now
+reach the run owner with the affected host and execution identity; a failed close
+keeps the registry owned for explicit recovery.
+
+This is node-local agent ownership. Manual VNC input, cross-Gateway arbitration,
+native viewer titles, and automatic agent-seat selection are not implemented by
+this command. A workflow selecting dedicated agent seats must use its eligible
+inventory, advance only on `COMPUTER_HOST_BUSY`, retain its first successful seat
+for the run, and never add a physical Primary desktop as fallback. The existing
+multi-target computer tool still permits an explicit host change.
+
 ## Authorization
 
 1. Enable the platform fulfiller: on macOS, **Dashboard → Settings → This Mac → Capabilities → Allow Computer Control** starts enabled, then choose Peekaboo or CUA and grant **Accessibility** and **Screen Recording** under **This Mac → Permissions**; on Windows/Linux, follow the experimental `cua-computer` setup above.
@@ -364,3 +410,32 @@ If the status says **Accessibility grant may be stale**, OpenClaw may already ap
 ## Relationship to other desktop-control paths
 
 This is the agent-driven path. See [Peekaboo bridge](/platforms/mac/peekaboo) for how it relates to the PeekabooBridge host, [Codex Computer Use](/plugins/codex-computer-use), and the direct `cua-driver` MCP.
+
+### Host-approved agent seat selection
+
+A host creating a run's tool set can pass `agentNodeCandidates`, an ordered,
+nonempty list of exact dedicated agent-seat node IDs, with `registerRunCleanup`.
+This is a per-run host option, not a model argument or persistent configuration.
+The external consumer is `createOpenClawCodingToolsAsync` from
+`openclaw/plugin-sdk/agent-harness`; its existing tool composition carries the
+option through to `computer`. An embedding harness supplies this approved list;
+ordinary callers that omit it retain the legacy explicit-host behavior.
+The host must supply only eligible agent seats: never include the human Primary
+desktop. OpenClaw does not discover candidates from names or all connected nodes,
+and never adds the Gateway desktop as a fallback.
+
+The first command must be a screenshot. Its actual provider observation acquires
+the seat; no status peek reserves it. Only an explicit `COMPUTER_HOST_BUSY`
+refusal advances to the next approved candidate. Timeout, permission, transport,
+invalid responses and other ambiguous failures stop selection for this run.
+Once acquired, the tool retains the binding and provider generation, rejects
+host/Gateway overrides, and never retries input elsewhere. The first acquisition
+image is returned by that screenshot call rather than capturing it twice.
+Normal completion/cancellation uses the same run cleanup. A provider-generation
+change refuses further work instead of silently opening a replacement desktop.
+Legacy explicit multi-host callers remain unchanged when this option is absent.
+
+Operator calls with a verified device retain ownership across that device's
+fresh CLI connections. Different devices are not conflated. Callers without a
+stable verified identity remain connection-scoped and cannot silently adopt an
+older connection's Unknown execution; approved recovery is required.

@@ -32,6 +32,7 @@ export type ComputerBinding = {
   host: ComputerHost;
   gatewayOpts: GatewayCallOptions;
   capabilities?: ComputerUseCapabilityDescriptor;
+  executionOwnership?: boolean;
   invoke: (
     request: Omit<Parameters<ComputerToolTransport["invoke"]>[0], "nodeId">,
   ) => Promise<unknown>;
@@ -242,6 +243,7 @@ export async function resolveComputerBinding(params: {
     host: { host: "node", nodeId: node.nodeId },
     gatewayOpts: params.gatewayOpts,
     capabilities: node.computerUse,
+    executionOwnership: node.commands?.includes("computer.execution"),
     invoke: (request) =>
       invokeAgentNodeCommand({ ...request, nodeId: node.nodeId, gatewayOpts: params.gatewayOpts }),
   };

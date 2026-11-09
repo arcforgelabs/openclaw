@@ -97,3 +97,93 @@ describe("cua-computer node invoke policy", () => {
     expect(invokeNode).not.toHaveBeenCalled();
   });
 });
+
+describe("computer execution interruption", () => {
+  const target = {
+    action: "recover",
+    executionId: "123e4567-e89b-42d3-a456-426614174000",
+    providerGeneration: "generation-one",
+    ownershipId: "ownership-one",
+    interrupt: true,
+  };
+  const policy = createCuaComputerNodeInvokePolicy();
+  const risk = policy.classifyRisk!({ command: "computer.execution", params: target });
+  const invokeNode = vi.fn<OpenClawPluginNodeInvokePolicyContext["invokeNode"]>(async () => ({
+    ok: true as const,
+  }));
+  const context = {
+    nodeId: "agent-seat",
+    command: "computer.execution",
+    params: target,
+    config: {},
+    risk,
+    invokeNode,
+  };
+
+  it.each([undefined, "deny", "allow-always"] as const)(
+    "does not automatically recover Unknown work on %s",
+    async (decision) => {
+      invokeNode.mockClear();
+      const request = vi.fn<
+        NonNullable<OpenClawPluginNodeInvokePolicyContext["approvals"]>["request"]
+      >(async () => ({ decision }));
+      expect(await policy.handle({ ...context, approvals: { request } })).toMatchObject({
+        ok: false,
+        code: "COMPUTER_INTERRUPTION_REQUIRED",
+      });
+      expect(invokeNode).not.toHaveBeenCalled();
+      expect(request.mock.calls[0]?.[0]).toMatchObject({
+        title: "Interrupt agent-seat",
+        description:
+          "Work may be lost. execution=123e4567-e89b-42d3-a456-426614174000 generation=generation-one ownership=ownership-one",
+        allowedDecisions: ["allow-once", "deny"],
+        severity: "critical",
+      });
+    },
+  );
+
+  it("dispatches only after an explicit one-time decision for the exact target", async () => {
+    invokeNode.mockClear();
+    let decide: (value: { decision: "allow-once" }) => void = () => {
+      throw new Error("approval was not requested");
+    };
+    const request = vi.fn(
+      () =>
+        new Promise<{ decision: "allow-once" }>((resolve) => {
+          decide = resolve;
+        }),
+    );
+    const pending = policy.handle({ ...context, approvals: { request } });
+    expect(invokeNode).not.toHaveBeenCalled();
+    decide({ decision: "allow-once" });
+    expect(await pending).toMatchObject({ ok: true });
+    expect(invokeNode).toHaveBeenCalledOnce();
+  });
+
+  it("dispatches only the target named by the human decision even if request arguments change while waiting", async () => {
+    invokeNode.mockClear();
+    const params = { ...target };
+    let decide: (value: { decision: "allow-once" }) => void = () => {
+      throw new Error("approval was not requested");
+    };
+    const request = vi.fn(
+      () =>
+        new Promise<{ decision: "allow-once" }>((resolve) => {
+          decide = resolve;
+        }),
+    );
+    const pending = policy.handle({ ...context, params, approvals: { request } });
+    params.executionId = "223e4567-e89b-42d3-a456-426614174000";
+    decide({ decision: "allow-once" });
+    await pending;
+    expect(invokeNode).toHaveBeenCalledExactlyOnceWith({
+      params: {
+        action: "recover",
+        executionId: "123e4567-e89b-42d3-a456-426614174000",
+        providerGeneration: "generation-one",
+        ownershipId: "ownership-one",
+        computerExecutionCaller: undefined,
+      },
+    });
+  });
+});

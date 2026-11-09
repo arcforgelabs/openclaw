@@ -1,3 +1,4 @@
+import type { ComputerExecutionCallerV1 } from "../../packages/gateway-protocol/src/computer-execution-context.js";
 import type { SystemRunExecutionContext } from "../../packages/gateway-protocol/src/system-run-execution-context.js";
 import type { SkillBinTrustEntry, SystemRunApprovalPlan } from "../infra/exec-approvals.js";
 
@@ -9,6 +10,7 @@ export type NodeInvokeRequestPayload = {
   timeoutMs?: number | null;
   idempotencyKey?: string | null;
   sessionKey?: string | null;
+  computerExecutionV1?: ComputerExecutionCallerV1;
 };
 
 export type SystemRunParams = {
