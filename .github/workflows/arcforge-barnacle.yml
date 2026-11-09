@@ -16,6 +16,6 @@ permissions: {}
 
 jobs:
   barnacle:
-    uses: arcforgelabs/.github/.github/workflows/barnacle.yml@d1877d0bac0d77e614929580f071437d8ad3ac71 # arcforgelabs/.github main
+    uses: arcforgelabs/.github/.github/workflows/barnacle.yml@b0fc9bcc89b5219efc0c8e5f855aaedc3ccec6b6 # arcforgelabs/.github main
     secrets:
       BARNACLE_APP_PRIVATE_KEY: ${{ secrets.BARNACLE_APP_PRIVATE_KEY }}
