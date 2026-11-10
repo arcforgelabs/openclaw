@@ -164,28 +164,6 @@ export function registerComputerUseProvider(
     execution.lastCommandAt = Date.now();
     return execution.promise;
   };
-  const stampOwnership = (payload: string) => {
-    const current = execution;
-    if (!current) {
-      return payload;
-    }
-    try {
-      const parsed = JSON.parse(payload) as unknown;
-      if (!isRecord(parsed)) {
-        return payload;
-      }
-      return JSON.stringify({
-        ...parsed,
-        computerExecutionOwnership: {
-          executionId: current.id,
-          ownershipId: current.ownershipId,
-          providerGeneration: current.generation,
-        },
-      });
-    } catch {
-      return payload;
-    }
-  };
   const finishAcquiredCommand = async (
     executionId: string,
     created: boolean,
@@ -193,10 +171,7 @@ export function registerComputerUseProvider(
     run: () => Promise<string>,
   ) => {
     try {
-      const payload = await run();
-      // Only the paired ownership path can carry this receipt. Other callers
-      // validate a closed action result and reject an extra field.
-      return context?.computerExecutionV1 ? stampOwnership(payload) : payload;
+      return await run();
     } catch (error) {
       if (created && execution?.id === executionId) {
         await closeExecution(

@@ -49,6 +49,7 @@ export function bindPairedComputerCleanup(
   };
   const invoke = binding.invoke;
   let close: ((reason: string) => Promise<unknown>) | undefined;
+  let boundOwnershipId: string | undefined;
   const acquiring = (request: { command: string; commandParams: Record<string, unknown> }) =>
     (request.command === "screen.snapshot" || request.command === "computer.act") &&
     request.commandParams.action !== "__close_execution";
@@ -109,6 +110,7 @@ export function bindPairedComputerCleanup(
         ),
       resolver,
     );
+    boundOwnershipId = ownershipId;
     close = async (reason) => {
       assertCustody();
       const response = await requestClose<{ payload: unknown }>({
@@ -179,11 +181,11 @@ export function bindPairedComputerCleanup(
       }
       try {
         const result = await invoke(request);
-        if (!close && acquiring(request)) {
+        if (acquiring(request)) {
           const stamped = ownershipStamp(result);
-          if (stamped) {
+          if (stamped && stamped !== boundOwnershipId) {
             bindGrant(stamped);
-          } else {
+          } else if (!stamped) {
             try {
               if (!(await bindInspectedAcquisition(true))) {
                 throw new Error("Computer cleanup could not bind its exact acquisition");
