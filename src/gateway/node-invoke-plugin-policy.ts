@@ -178,12 +178,16 @@ export async function applyPluginNodeInvokePolicy(params: {
     // Remote ownership recovery must not become an unclassified raw command
     // merely because this Gateway has no local computer provider enabled.
     if (params.command === "computer.execution") {
-      return {
-        ok: false,
-        code: "PLUGIN_POLICY_MISSING",
-        message: "computer.execution requires a live interruption approval policy",
-        details: { nodeCommandDispatched: false },
-      };
+      const action = asOptionalRecord(params.params)?.action;
+      // A read-only inspect must not depend on optional recovery policy.
+      if (action !== "inspect") {
+        return {
+          ok: false,
+          code: "PLUGIN_POLICY_MISSING",
+          message: "computer.execution requires a live interruption approval policy",
+          details: { nodeCommandDispatched: false },
+        };
+      }
     }
     const dangerousCommand = findDangerousPluginNodeCommand(registry, params.command);
     if (dangerousCommand) {

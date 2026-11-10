@@ -187,12 +187,22 @@ export function bindPairedComputerCleanup(
             bindGrant(stamped);
           } else if (!stamped) {
             try {
-              if (!(await bindInspectedAcquisition(true))) {
+              const bound = await bindInspectedAcquisition(true).catch(async (error: unknown) => {
+                if (!(await bindInspectedAcquisition(false))) {
+                  throw error;
+                }
+                return true;
+              });
+              if (!bound) {
                 throw new Error("Computer cleanup could not bind its exact acquisition");
               }
             } catch (error) {
               const message = error instanceof Error ? error.message : "";
+              const details = isRecord(error) && isRecord(error.details) ? error.details : undefined;
+              const code = typeof details?.code === "string" ? details.code : "";
               if (
+                code !== "PLUGIN_POLICY_MISSING" &&
+                code !== "COMPUTER_OWNERSHIP_UNAVAILABLE" &&
                 !message.includes("PLUGIN_POLICY_MISSING") &&
                 !message.includes("COMPUTER_OWNERSHIP_UNAVAILABLE")
               ) {
@@ -207,7 +217,11 @@ export function bindPairedComputerCleanup(
           try {
             await bindInspectedAcquisition(true);
           } catch {
-            // A failed first command releases the seat in the node handler.
+            try {
+              await bindInspectedAcquisition(false);
+            } catch {
+              // A failed first command releases the seat in the node handler.
+            }
           }
         }
         throw error;
