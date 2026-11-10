@@ -69,8 +69,9 @@ export function bindPairedComputerCleanup(
           withGatewayToolCallerIdentity(
             {
               ...caller,
-              approvalSignals: (caller.approvalSignals ?? []).filter((signal) => !signal.aborted),
-              // A cancelled run must not block the ownership read that binds cleanup.
+              approvalSignals: [],
+              // A run identity without its receipt fails before dispatch.
+              operationalRunInstance: undefined,
               receiptAuthority: undefined,
               approvalAuthority: undefined,
               approvalAuthorityCheck: undefined,
