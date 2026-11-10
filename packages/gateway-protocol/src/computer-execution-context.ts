@@ -10,6 +10,13 @@ export const ComputerExecutionCallerV1Schema = closedObject({
   instanceId: Type.Optional(NonEmptyString),
   callerId: Type.Optional(NonEmptyString),
   recoveryOperator: Type.Boolean(),
+  cleanup: Type.Optional(
+    closedObject({
+      executionId: NonEmptyString,
+      providerGeneration: NonEmptyString,
+      ownershipId: NonEmptyString,
+    }),
+  ),
 });
 export type ComputerExecutionCallerV1 = Static<typeof ComputerExecutionCallerV1Schema>;
 export const validateComputerExecutionCallerV1 = lazyCompile(ComputerExecutionCallerV1Schema);

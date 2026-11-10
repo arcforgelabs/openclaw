@@ -14,6 +14,7 @@ import {
   loadGatewayComputerStatus,
   type GatewayComputerStatus,
 } from "./computer-tool-gateway.js";
+import { bindPairedComputerCleanup } from "./computer-tool-node-cleanup.js";
 import type { ComputerHost, ComputerToolTransport } from "./computer-tool-shared.js";
 import { COMPUTER_ACT_COMMAND, SCREEN_SNAPSHOT_COMMAND } from "./computer-tool-shared.js";
 import {
@@ -239,12 +240,19 @@ export async function resolveComputerBinding(params: {
     isEligibleComputerNode,
     COMPUTER_NODE_MESSAGES,
   );
-  return {
-    host: { host: "node", nodeId: node.nodeId },
-    gatewayOpts: params.gatewayOpts,
-    capabilities: node.computerUse,
-    executionOwnership: node.commands?.includes("computer.execution"),
-    invoke: (request) =>
-      invokeAgentNodeCommand({ ...request, nodeId: node.nodeId, gatewayOpts: params.gatewayOpts }),
-  };
+  return bindPairedComputerCleanup(
+    {
+      host: { host: "node", nodeId: node.nodeId },
+      gatewayOpts: params.gatewayOpts,
+      capabilities: node.computerUse,
+      executionOwnership: node.commands?.includes("computer.execution"),
+      invoke: (request) =>
+        invokeAgentNodeCommand({
+          ...request,
+          nodeId: node.nodeId,
+          gatewayOpts: params.gatewayOpts,
+        }),
+    },
+    params.executionId,
+  );
 }

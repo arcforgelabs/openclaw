@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { runWithComputerExecutionCleanup } from "./computer-execution-cleanup.js";
 import { sanitizeNodeInvokeParamsForForwarding } from "./node-invoke-sanitize.js";
 import type { GatewayClient } from "./server-methods/types.js";
 
@@ -190,4 +191,71 @@ it("retains authenticated device ownership across fresh operator CLI connections
     ok: true,
     params: { computerExecutionCaller: { callerId: "device:verified-device-two" } },
   });
+});
+
+it("mints cleanup provenance only from exact live host custody, never model params", async () => {
+  let current = true;
+  const target = {
+    nodeId: "node-cleanup",
+    executionId: "execution-cleanup",
+    providerGeneration: "generation",
+    ownershipId: "acquisition",
+  };
+  const grant = {
+    ...target,
+    assertCurrent: () => {
+      if (!current) {
+        throw new Error("custody closed");
+      }
+    },
+  };
+  const request = {
+    nodeId: target.nodeId,
+    command: "computer.act",
+    declaredCommands: ["computer.execution"],
+    client: null,
+    rawParams: {
+      action: "__close_execution",
+      executionId: target.executionId,
+      providerGeneration: target.providerGeneration,
+      computerExecutionCaller: { cleanup: target, recoveryOperator: true },
+    },
+  };
+  const ordinary = await sanitizeNodeInvokeParamsForForwarding(request);
+  expect(ordinary).not.toHaveProperty("params.computerExecutionCaller.cleanup");
+  const cleanup = await runWithComputerExecutionCleanup(grant, () =>
+    sanitizeNodeInvokeParamsForForwarding(request),
+  );
+  expect(cleanup).toMatchObject({
+    ok: true,
+    params: {
+      computerExecutionCaller: {
+        recoveryOperator: false,
+        cleanup: {
+          executionId: target.executionId,
+          providerGeneration: target.providerGeneration,
+          ownershipId: target.ownershipId,
+        },
+      },
+    },
+  });
+  await expect(
+    runWithComputerExecutionCleanup(grant, () =>
+      sanitizeNodeInvokeParamsForForwarding({
+        ...request,
+        rawParams: { action: "type", text: "not allowed" },
+      }),
+    ),
+  ).rejects.toThrow("cannot dispatch another operation");
+  await expect(
+    runWithComputerExecutionCleanup(grant, () =>
+      sanitizeNodeInvokeParamsForForwarding({ ...request, nodeId: "other-node" }),
+    ),
+  ).rejects.toThrow("cannot dispatch another operation");
+  await expect(
+    runWithComputerExecutionCleanup(grant, async () => {
+      current = false;
+      return await sanitizeNodeInvokeParamsForForwarding(request);
+    }),
+  ).rejects.toThrow("custody closed");
 });

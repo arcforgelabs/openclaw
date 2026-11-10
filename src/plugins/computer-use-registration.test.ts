@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   guardAgentSeatBinding,
   resolveAgentSeatTarget,
@@ -390,4 +390,67 @@ it("pins an approved seat's provider generation at the actual registered desktop
   expect(h.snapshot).toHaveBeenCalledOnce();
   // Explicit disconnect cleanup still uses its existing internal owner, not a stale input header.
   await h.commands.get("screen.snapshot")!.onDisconnect?.();
+});
+
+it("keeps the legitimate owner usable when cancelled recovery never starts physical close", async () => {
+  const h = fixture();
+  const opened = createDeferredCore<Awaited<ReturnType<typeof h.openExecution>>>();
+  h.openExecution.mockReturnValueOnce(opened.promise);
+  const capture = h.invoke("screen.snapshot", { executionId: first }, owner);
+  await Promise.resolve();
+  const inspection = await h.invoke("computer.execution", inspect, owner);
+  const abort = new AbortController();
+  const recoveryAttempt = h.invoke(
+    "computer.execution",
+    {
+      action: "recover",
+      executionId: first,
+      providerGeneration: "generation-one",
+      ownershipId: inspection.ownershipId,
+    },
+    owner,
+    abort.signal,
+  );
+  const rejected = expect(recoveryAttempt).rejects.toThrow();
+  abort.abort(new Error("recovery cancelled before effect"));
+  const act = vi.fn(async () => '{"ok":true}');
+  opened.resolve({ close: h.close, snapshot: h.snapshot, act });
+  await rejected;
+  await capture;
+  expect(h.close).not.toHaveBeenCalled();
+  await h.invoke("screen.snapshot", { executionId: first }, owner);
+  await h.invoke(
+    "computer.act",
+    { executionId: first, action: "type", text: "still owned" },
+    owner,
+  );
+  await h.invoke("computer.act", cleanup, owner);
+  expect(h.close).toHaveBeenCalledOnce();
+});
+
+it("limits transferred cleanup to its exact acquisition and never permits input", async () => {
+  const h = fixture();
+  await h.invoke("screen.snapshot", snapshot, owner);
+  const acquired = await h.invoke("computer.execution", inspect, owner);
+  const cleanupOnly = {
+    cleanup: {
+      executionId: first,
+      providerGeneration: "generation-one",
+      ownershipId: acquired.ownershipId,
+    },
+  };
+  await expect(h.invoke("screen.snapshot", snapshot, cleanupOnly)).rejects.toThrow(
+    "cleanup authority permits only its exact close",
+  );
+  await expect(
+    h.invoke("computer.act", { ...snapshot, action: "type", text: "forbidden" }, cleanupOnly),
+  ).rejects.toThrow("cleanup authority permits only its exact close");
+  await h.invoke("computer.act", cleanup, cleanupOnly);
+  expect(h.close).toHaveBeenCalledOnce();
+  await h.invoke("screen.snapshot", snapshot, owner);
+  await expect(h.invoke("computer.act", cleanup, cleanupOnly)).rejects.toThrow(
+    "cleanup acquisition changed",
+  );
+  expect(h.close).toHaveBeenCalledOnce();
+  await h.invoke("computer.act", cleanup, owner);
 });

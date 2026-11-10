@@ -65,15 +65,12 @@ describe("run cleanup through registered provider commands", () => {
       });
       await session.captureScreenshot(resolved, 1280);
       if (reason === "cancellation") {
-        h.snapshot.mockImplementationOnce(async (_params, signal) => {
-          signal?.throwIfAborted();
-          throw new Error("expected an aborted signal");
-        });
         const abort = new AbortController();
         abort.abort(new Error("fixture cancellation"));
         await expect(session.captureScreenshot(resolved, 1280, abort.signal)).rejects.toThrow(
           "fixture cancellation",
         );
+        expect(h.snapshot).toHaveBeenCalledOnce();
       } else {
         await session.captureScreenshot(resolved, 1280);
       }

@@ -69,6 +69,15 @@ export function registerComputerUseProvider(
     }
     context?.computerExecutionV1?.assertCurrent();
     const caller: Caller | undefined = context?.computerExecutionV1?.caller;
+    if (
+      caller?.cleanup &&
+      (!isRecord(value) ||
+        value.action !== "__close_execution" ||
+        value.executionId !== caller.cleanup.executionId ||
+        value.providerGeneration !== caller.cleanup.providerGeneration)
+    ) {
+      throw new Error("COMPUTER_OWNER_FORBIDDEN: cleanup authority permits only its exact close");
+    }
     // Host-owned envelope metadata must never reach native provider argument parsers.
     const commandValue = isRecord(value)
       ? Object.fromEntries(
@@ -167,9 +176,13 @@ export function registerComputerUseProvider(
     if (pendingClose) {
       return pendingClose;
     }
+    // A rejected pre-effect guard must not poison an otherwise usable execution.
+    const previousBarrier = closingPromise;
+    let physicalCloseStarted = false;
     // Watcher stop and disconnect must join the same physical close before either yields.
     const close = current.promise.then(async (opened) => {
       guard?.();
+      physicalCloseStarted = true;
       await opened.close(reason);
     });
     pendingClose = close;
@@ -187,6 +200,8 @@ export function registerComputerUseProvider(
         // Failed open owns nothing; failed physical close stays owned for an explicit close.
         if (execution !== current) {
           closingPromise = undefined;
+        } else if (!physicalCloseStarted) {
+          closingPromise = previousBarrier;
         }
       },
     );
@@ -294,7 +309,26 @@ export function registerComputerUseProvider(
       if (isRecord(envelope.value) && envelope.value.action === "__close_execution") {
         const reason = envelope.value.reason;
         const current = execution;
-        if (current?.id === envelope.executionId && !ownsExecution(current, envelope.caller)) {
+        const cleanup = envelope.caller?.cleanup;
+        const assertCleanupAcquisition = () => {
+          if (
+            cleanup &&
+            (!current ||
+              execution !== current ||
+              current.id !== cleanup.executionId ||
+              current.generation !== cleanup.providerGeneration ||
+              current.ownershipId !== cleanup.ownershipId ||
+              provider.capabilities().provider.generation !== cleanup.providerGeneration)
+          ) {
+            throw new Error("COMPUTER_OWNER_CHANGED: cleanup acquisition changed");
+          }
+        };
+        assertCleanupAcquisition();
+        if (
+          current?.id === envelope.executionId &&
+          !cleanup &&
+          !ownsExecution(current, envelope.caller)
+        ) {
           throw new Error(
             "COMPUTER_OWNER_FORBIDDEN: use approved recovery for another run's execution",
           );
@@ -314,6 +348,7 @@ export function registerComputerUseProvider(
             ? undefined
             : () => {
                 context?.computerExecutionV1?.assertCurrent();
+                assertCleanupAcquisition();
                 if (
                   expectedGeneration !== undefined &&
                   (execution !== current ||

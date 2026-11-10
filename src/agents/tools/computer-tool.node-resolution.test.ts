@@ -435,7 +435,15 @@ describe("createComputerTool node resolution", () => {
           closeFails
             ? {
                 status: "rejected",
-                reason: { message: "computer: session desktop cleanup failed", errors: [failure] },
+                reason: {
+                  message: "computer: session desktop cleanup failed",
+                  errors: [
+                    expect.objectContaining({
+                      message: expect.stringContaining("node:desktop-node execution "),
+                      cause: failure,
+                    }),
+                  ],
+                },
               }
             : { status: "fulfilled" },
         );

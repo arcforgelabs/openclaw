@@ -3,6 +3,7 @@ import {
   SYSTEM_RUN_EXECUTION_CONTEXT_CAPABILITY,
   validateSystemRunExecutionContext,
 } from "../../packages/gateway-protocol/src/system-run-execution-context.js";
+import { readComputerExecutionCleanup } from "./computer-execution-cleanup.js";
 import type { ExecApprovalManager } from "./exec-approval-manager.js";
 import { sanitizeSystemRunParamsForForwarding } from "./node-invoke-system-run-approval.js";
 import { hasGatewayAdminScope } from "./operator-scopes.js";
@@ -42,6 +43,7 @@ export async function sanitizeNodeInvokeParamsForForwarding(opts: {
     if (raw) {
       // Never accept ownership provenance or recovery authority from tool arguments.
       const { computerExecutionCaller: _ignored, ...params } = raw;
+      const cleanup = readComputerExecutionCleanup(opts);
       const identity = opts.client?.internal?.agentRuntimeIdentity;
       const callerId = identity
         ? undefined
@@ -57,6 +59,7 @@ export async function sanitizeNodeInvokeParamsForForwarding(opts: {
         params: {
           ...params,
           computerExecutionCaller: {
+            ...(cleanup ? { cleanup } : {}),
             ...(identity
               ? {
                   sessionKey: identity.sessionKey,
