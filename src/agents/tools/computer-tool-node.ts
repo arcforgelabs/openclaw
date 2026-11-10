@@ -394,12 +394,12 @@ export class ComputerToolSession {
         "Computer target is bound to its Gateway connection; start a new execution to change it",
       );
     }
-    // Keep cleanup only while this selection still names the same connection.
+    // Keep cleanup only for a positively matched connection. A missing marker
+    // must refresh capabilities, as the existing explicit reselection contract requires.
     const sameConnection =
-      !existingBinding?.pairedConnection ||
-      !resolvedBinding.pairedConnection ||
+      existingBinding?.pairedConnection !== undefined &&
       existingBinding.pairedConnection === resolvedBinding.pairedConnection;
-    let binding = sameConnection ? (existingBinding ?? resolvedBinding) : resolvedBinding;
+    let binding = sameConnection ? existingBinding : resolvedBinding;
     if (this.agentSeatSelection && !existingBinding) {
       binding = guardAgentSeatBinding(binding);
     }

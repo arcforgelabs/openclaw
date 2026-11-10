@@ -189,11 +189,14 @@ export function registerComputerUseProvider(
   const finishAcquiredCommand = async (
     executionId: string,
     created: boolean,
-    context: { signal?: AbortSignal } | undefined,
+    context: { signal?: AbortSignal; computerExecutionV1?: unknown } | undefined,
     run: () => Promise<string>,
   ) => {
     try {
-      return stampOwnership(await run());
+      const payload = await run();
+      // Only the paired ownership path can carry this receipt. Other callers
+      // validate a closed action result and reject an extra field.
+      return context?.computerExecutionV1 ? stampOwnership(payload) : payload;
     } catch (error) {
       if (created && execution?.id === executionId) {
         await closeExecution(
