@@ -394,7 +394,8 @@ export class ComputerToolSession {
         "Computer target is bound to its Gateway connection; start a new execution to change it",
       );
     }
-    let binding = refreshNode ? resolvedBinding : (existingBinding ?? resolvedBinding);
+    // A refreshed route must not replace custody already bound to this acquisition.
+    let binding = existingBinding ?? resolvedBinding;
     if (this.agentSeatSelection && !existingBinding) {
       binding = guardAgentSeatBinding(binding);
     }

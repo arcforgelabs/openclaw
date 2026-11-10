@@ -4,6 +4,8 @@ import type { ComputerBinding } from "./computer-tool-bindings.js";
 import {
   captureGatewayToolCallerAssertion,
   getGatewayToolCallerIdentity,
+  withGatewayToolCallerIdentity,
+  withoutGatewayToolCallerIdentity,
 } from "./gateway-caller-context.js";
 import { shouldUseInProcessGatewayTool } from "./gateway.js";
 import {
@@ -50,14 +52,31 @@ export function bindPairedComputerCleanup(
   const acquiring = (request: { command: string; commandParams: Record<string, unknown> }) =>
     (request.command === "screen.snapshot" || request.command === "computer.act") &&
     request.commandParams.action !== "__close_execution";
-  const bindInspectedAcquisition = async () => {
-    assertCaller();
-    const inspected = await invoke({
-      command: "computer.execution",
-      commandParams: { action: "inspect", providerGeneration: generation },
-    });
-    const owner = typeof inspected === "string" ? JSON.parse(inspected) : inspected;
-    assertCaller();
+  const bindInspectedAcquisition = async (liveCaller: boolean) => {
+    const readOwnership = async () => {
+      if (liveCaller) {
+        assertCaller();
+      }
+      return await invoke({
+        command: "computer.execution",
+        commandParams: { action: "inspect", providerGeneration: generation },
+      });
+    };
+    const ownership = liveCaller
+      ? await readOwnership()
+      : await withoutGatewayToolCallerIdentity(() =>
+          withGatewayToolCallerIdentity(
+            {
+              ...caller,
+              approvalSignals: (caller.approvalSignals ?? []).filter((signal) => !signal.aborted),
+            },
+            readOwnership,
+          ),
+        );
+    const owner = typeof ownership === "string" ? JSON.parse(ownership) : ownership;
+    if (liveCaller) {
+      assertCaller();
+    }
     assertCustody();
     const acquiredOwner = isRecord(owner) && isRecord(owner.owner) ? owner.owner : undefined;
     if (
@@ -124,16 +143,20 @@ export function bindPairedComputerCleanup(
       }
       try {
         const result = await invoke(request);
-        if (!close && acquiring(request) && !(await bindInspectedAcquisition())) {
+        if (!close && acquiring(request) && !(await bindInspectedAcquisition(true))) {
           throw new Error("Computer cleanup could not bind its exact acquisition");
         }
         return result;
       } catch (error) {
-        const aborted =
-          request.signal?.aborted === true ||
-          (error instanceof Error && error.name === "AbortError");
-        if (!close && aborted && acquiring(request)) {
-          await bindInspectedAcquisition();
+        if (!close && acquiring(request)) {
+          const aborted =
+            request.signal?.aborted === true ||
+            (error instanceof Error && error.name === "AbortError");
+          try {
+            await bindInspectedAcquisition(!aborted);
+          } catch {
+            // Keep the original command failure visible when inspection cannot run.
+          }
         }
         throw error;
       }
