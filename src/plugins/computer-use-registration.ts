@@ -164,6 +164,46 @@ export function registerComputerUseProvider(
     execution.lastCommandAt = Date.now();
     return execution.promise;
   };
+  const stampOwnership = (payload: string) => {
+    const current = execution;
+    if (!current) {
+      return payload;
+    }
+    try {
+      const parsed = JSON.parse(payload) as unknown;
+      if (!isRecord(parsed)) {
+        return payload;
+      }
+      return JSON.stringify({
+        ...parsed,
+        computerExecutionOwnership: {
+          executionId: current.id,
+          ownershipId: current.ownershipId,
+          providerGeneration: current.generation,
+        },
+      });
+    } catch {
+      return payload;
+    }
+  };
+  const finishAcquiredCommand = async (
+    executionId: string,
+    created: boolean,
+    context: { signal?: AbortSignal } | undefined,
+    run: () => Promise<string>,
+  ) => {
+    try {
+      return stampOwnership(await run());
+    } catch (error) {
+      if (created && execution?.id === executionId) {
+        await closeExecution(
+          executionId,
+          context?.signal?.aborted ? "cancellation" : "command-failed",
+        ).catch(() => undefined);
+      }
+      throw error;
+    }
+  };
   const closeCurrentExecution = (
     executionId: string | undefined,
     reason: string,
@@ -272,11 +312,14 @@ export function registerComputerUseProvider(
       const envelope = executionEnvelopeFromParams(paramsJSON, context);
       assertProviderGeneration(envelope.providerGeneration);
       if (envelope.executionId) {
+        const created = execution?.id !== envelope.executionId;
         const opened = await getExecution(envelope.executionId, context, envelope.caller);
-        context?.signal?.throwIfAborted();
-        context?.computerExecutionV1?.assertCurrent();
-        assertProviderGeneration(envelope.providerGeneration);
-        return await opened.snapshot(JSON.stringify(envelope.value), context?.signal);
+        return await finishAcquiredCommand(envelope.executionId, created, context, async () => {
+          context?.signal?.throwIfAborted();
+          context?.computerExecutionV1?.assertCurrent();
+          assertProviderGeneration(envelope.providerGeneration);
+          return await opened.snapshot(JSON.stringify(envelope.value), context?.signal);
+        });
       }
       if (hasActiveWork()) {
         throw new Error("COMPUTER_HOST_BUSY: another provider execution owns this computer");
@@ -368,11 +411,14 @@ export function registerComputerUseProvider(
           ...(expectedGeneration !== undefined ? { released } : {}),
         });
       }
+      const created = execution?.id !== envelope.executionId;
       const opened = await getExecution(envelope.executionId, context, envelope.caller);
-      context?.signal?.throwIfAborted();
-      context?.computerExecutionV1?.assertCurrent();
-      assertProviderGeneration(envelope.providerGeneration);
-      return await opened.act(JSON.stringify(envelope.value), context?.signal);
+      return await finishAcquiredCommand(envelope.executionId, created, context, async () => {
+        context?.signal?.throwIfAborted();
+        context?.computerExecutionV1?.assertCurrent();
+        assertProviderGeneration(envelope.providerGeneration);
+        return await opened.act(JSON.stringify(envelope.value), context?.signal);
+      });
     },
   });
   api.registerNodeHostCommand({

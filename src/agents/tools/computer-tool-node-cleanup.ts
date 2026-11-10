@@ -91,14 +91,17 @@ export function bindPairedComputerCleanup(
     ) {
       return false;
     }
+    bindGrant(owner.ownershipId);
+    return true;
+  };
+  const bindGrant = (ownershipId: string) => {
     const grant = {
       nodeId,
       executionId,
       providerGeneration: generation,
-      ownershipId: owner.ownershipId,
+      ownershipId,
       assertCurrent: assertCustody,
     };
-    // Bind inside the cleanup-only scope: the request helper snapshots its ALS custody.
     const requestClose = runWithGatewayToolCleanupContext(
       () =>
         runWithComputerExecutionCleanup(grant, () =>
@@ -120,12 +123,29 @@ export function bindPairedComputerCleanup(
             providerGeneration: generation,
             reason,
           },
-          idempotencyKey: `computer.close:${executionId}:${owner.ownershipId}`,
+          idempotencyKey: `computer.close:${executionId}:${ownershipId}`,
         },
       });
       return response.payload;
     };
-    return true;
+  };
+  const ownershipStamp = (result: unknown) => {
+    let parsed: unknown;
+    try {
+      parsed = typeof result === "string" ? (JSON.parse(result) as unknown) : result;
+    } catch {
+      return undefined;
+    }
+    const stamp = isRecord(parsed) ? parsed.computerExecutionOwnership : undefined;
+    if (
+      !isRecord(stamp) ||
+      stamp.executionId !== executionId ||
+      stamp.providerGeneration !== generation ||
+      typeof stamp.ownershipId !== "string"
+    ) {
+      return undefined;
+    }
+    return stamp.ownershipId;
   };
   return {
     ...binding,
@@ -143,19 +163,33 @@ export function bindPairedComputerCleanup(
       }
       try {
         const result = await invoke(request);
-        if (!close && acquiring(request) && !(await bindInspectedAcquisition(true))) {
-          throw new Error("Computer cleanup could not bind its exact acquisition");
+        if (!close && acquiring(request)) {
+          const stamped = ownershipStamp(result);
+          if (stamped) {
+            bindGrant(stamped);
+          } else {
+            try {
+              if (!(await bindInspectedAcquisition(true))) {
+                throw new Error("Computer cleanup could not bind its exact acquisition");
+              }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "";
+              if (
+                !message.includes("PLUGIN_POLICY_MISSING") &&
+                !message.includes("COMPUTER_OWNERSHIP_UNAVAILABLE")
+              ) {
+                throw error;
+              }
+            }
+          }
         }
         return result;
       } catch (error) {
         if (!close && acquiring(request)) {
-          const aborted =
-            request.signal?.aborted === true ||
-            (error instanceof Error && error.name === "AbortError");
           try {
-            await bindInspectedAcquisition(!aborted);
+            await bindInspectedAcquisition(true);
           } catch {
-            // Keep the original command failure visible when inspection cannot run.
+            // A failed first command releases the seat in the node handler.
           }
         }
         throw error;
