@@ -4,8 +4,6 @@ import type { ComputerBinding } from "./computer-tool-bindings.js";
 import {
   captureGatewayToolCallerAssertion,
   getGatewayToolCallerIdentity,
-  withGatewayToolCallerIdentity,
-  withoutGatewayToolCallerIdentity,
 } from "./gateway-caller-context.js";
 import { shouldUseInProcessGatewayTool } from "./gateway.js";
 import {
@@ -63,22 +61,11 @@ export function bindPairedComputerCleanup(
         commandParams: { action: "inspect", providerGeneration: generation },
       });
     };
-    const ownership = liveCaller
-      ? await readOwnership()
-      : await withoutGatewayToolCallerIdentity(() =>
-          withGatewayToolCallerIdentity(
-            {
-              ...caller,
-              approvalSignals: [],
-              // A run identity without its receipt fails before dispatch.
-              operationalRunInstance: undefined,
-              receiptAuthority: undefined,
-              approvalAuthority: undefined,
-              approvalAuthorityCheck: undefined,
-            },
-            readOwnership,
-          ),
-        );
+    if (!liveCaller) {
+      // A run-less inspect hides the owner. The node releases a cancelled acquisition.
+      return false;
+    }
+    const ownership = await readOwnership();
     const owner = typeof ownership === "string" ? JSON.parse(ownership) : ownership;
     if (liveCaller) {
       assertCaller();

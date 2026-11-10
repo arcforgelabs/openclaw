@@ -40,7 +40,7 @@ const DESKTOP_SCREEN_COMMANDS = [...SCREEN_COMMANDS, NODE_DESKTOP_STREAM_COMMAND
 
 // Desktop computer use is advertised only while the node-local control is
 // enabled. Pairing approval of that advertised surface is the durable grant.
-const COMPUTER_COMMANDS = ["computer.act"];
+const COMPUTER_COMMANDS = ["computer.act", "computer.execution"];
 
 // Android advertises these only while Accessibility Control is enabled. The
 // action tool adds its own model-visible confirmation contract for mutations.

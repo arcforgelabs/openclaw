@@ -171,7 +171,13 @@ export function registerComputerUseProvider(
     run: () => Promise<string>,
   ) => {
     try {
-      return await run();
+      const payload = await run();
+      // Release this acquisition on the node when the caller is already cancelled.
+      // A later ownership read cannot see the owner after the run identity is gone.
+      if (context?.signal?.aborted && execution?.id === executionId) {
+        await closeExecution(executionId, "cancellation").catch(() => undefined);
+      }
+      return payload;
     } catch (error) {
       if (created && execution?.id === executionId) {
         await closeExecution(
