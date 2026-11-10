@@ -70,6 +70,10 @@ export function bindPairedComputerCleanup(
             {
               ...caller,
               approvalSignals: (caller.approvalSignals ?? []).filter((signal) => !signal.aborted),
+              // A cancelled run must not block the ownership read that binds cleanup.
+              receiptAuthority: undefined,
+              approvalAuthority: undefined,
+              approvalAuthorityCheck: undefined,
             },
             readOwnership,
           ),

@@ -85,7 +85,10 @@ describe("cua-computer plugin registration", () => {
       registerNodeInvokePolicy: (policy) => policies.push(policy),
     });
     expect(policies).toHaveLength(1);
-    expect(policies[0]).toMatchObject({ commands: ["computer.act"], dangerous: true });
+    expect(policies[0]).toMatchObject({
+      commands: ["computer.act", "computer.execution"],
+      dangerous: true,
+    });
     expect(registerNodeHostCommand).not.toHaveBeenCalled();
     expect(artifactMocks.verify).not.toHaveBeenCalled();
     expect(artifactMocks.registerDoctor).not.toHaveBeenCalled();
@@ -100,6 +103,7 @@ describe("cua-computer plugin registration", () => {
       expect(commands.map((command) => command.command)).toEqual([
         "screen.snapshot",
         "computer.act",
+        "computer.execution",
       ]);
       expect(artifactMocks.verify).toHaveBeenCalledOnce();
       expect(artifactMocks.registerDoctor).toHaveBeenCalledOnce();
@@ -126,6 +130,7 @@ describe("cua-computer plugin registration", () => {
     expect(commands.map(({ command, cap, dangerous }) => ({ command, cap, dangerous }))).toEqual([
       { command: "screen.snapshot", cap: "screen", dangerous: false },
       { command: "computer.act", cap: "computer", dangerous: true },
+      { command: "computer.execution", cap: "computer", dangerous: true },
     ]);
   });
 
