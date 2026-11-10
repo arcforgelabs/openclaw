@@ -34,6 +34,7 @@ export type ComputerBinding = {
   gatewayOpts: GatewayCallOptions;
   capabilities?: ComputerUseCapabilityDescriptor;
   executionOwnership?: boolean;
+  pairedConnection?: object;
   invoke: (
     request: Omit<Parameters<ComputerToolTransport["invoke"]>[0], "nodeId">,
   ) => Promise<unknown>;

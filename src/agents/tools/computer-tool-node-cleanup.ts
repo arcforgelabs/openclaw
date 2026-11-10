@@ -147,8 +147,24 @@ export function bindPairedComputerCleanup(
     }
     return stamp.ownershipId;
   };
+  const withoutOwnershipStamp = (result: unknown) => {
+    let parsed: unknown;
+    let encoded = false;
+    try {
+      parsed = typeof result === "string" ? (JSON.parse(result) as unknown) : result;
+      encoded = typeof result === "string";
+    } catch {
+      return result;
+    }
+    if (!isRecord(parsed) || !Object.hasOwn(parsed, "computerExecutionOwnership")) {
+      return result;
+    }
+    const { computerExecutionOwnership: _stamp, ...payload } = parsed;
+    return encoded ? JSON.stringify(payload) : payload;
+  };
   return {
     ...binding,
+    pairedConnection: node,
     invoke: async (request) => {
       if (
         request.command === "computer.act" &&
@@ -183,7 +199,7 @@ export function bindPairedComputerCleanup(
             }
           }
         }
-        return result;
+        return withoutOwnershipStamp(result);
       } catch (error) {
         if (!close && acquiring(request)) {
           try {
