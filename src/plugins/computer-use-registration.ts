@@ -172,12 +172,30 @@ export function registerComputerUseProvider(
   ) => {
     try {
       const payload = await run();
+      const current = execution?.id === executionId ? execution : undefined;
+      let stamped = payload;
+      if (current) {
+        try {
+          const parsed = JSON.parse(payload) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            stamped = JSON.stringify({
+              ...parsed,
+              computerExecutionOwnership: {
+                executionId,
+                providerGeneration: current.generation,
+                ownershipId: current.ownershipId,
+              },
+            });
+          }
+        } catch {
+          // A non-JSON result keeps the separate ownership read.
+        }
+      }
       // Release this acquisition on the node when the caller is already cancelled.
-      // A later ownership read cannot see the owner after the run identity is gone.
-      if (context?.signal?.aborted && execution?.id === executionId) {
+      if (context?.signal?.aborted && current) {
         await closeExecution(executionId, "cancellation").catch(() => undefined);
       }
-      return payload;
+      return stamped;
     } catch (error) {
       if (created && execution?.id === executionId) {
         await closeExecution(

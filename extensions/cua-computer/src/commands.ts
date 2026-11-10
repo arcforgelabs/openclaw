@@ -608,6 +608,12 @@ export function createCuaComputerProvider(
                 : new Error("CUA Computer cleanup failed", { cause: failure });
             }
           });
+          // A rejected close must be retryable. A successful close stays cached.
+          closePromise = closePromise.catch((error: unknown) => {
+            closePromise = undefined;
+            closing = false;
+            throw error;
+          });
           return await closePromise;
         },
       };
