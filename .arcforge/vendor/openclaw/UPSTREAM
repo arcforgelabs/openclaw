@@ -1,0 +1,4 @@
+repo=openclaw/openclaw
+sha=5ff5fb278348bb6d2280bfbfb7e5cd3a66e74712
+source=arcforgelabs/.github@b0fc9bcc89b5219efc0c8e5f855aaedc3ccec6b6
+note=Configured Barnacle snapshot and its direct dependencies only; no build-time patch.

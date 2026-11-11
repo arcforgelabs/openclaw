@@ -1,0 +1,151 @@
+{
+  "$comment": "Arc Forge values for upstream Barnacle (vendor/openclaw/scripts/github/barnacle-auto-response.mjs). Every upstream rule is kept; OpenClaw-product rules start with enabled: false. Label rules only act when a maintainer applies the label, except commentTriggers, which fire on outside comments. A repo can override keys in its own .github/barnacle.json.",
+  "activePrLimit": 20,
+  "maintainerTeam": "maintainer",
+  "automationPrHeadPrefixes": [
+    "clawsweeper/"
+  ],
+  "pingWarningMessage": "Please don't ping several maintainers at once. Every issue and PR here is triaged; a maintainer will pick this up.",
+  "noisyPrMessage": "Closing this PR because it looks dirty (too many unrelated or unexpected changes). This usually happens when a branch picks up unrelated commits or a merge went sideways. Please recreate the PR from a clean branch.",
+  "issueKeywordLabels": [
+    {
+      "label": "security",
+      "title": "security"
+    }
+  ],
+  "rules": [
+    {
+      "label": "r: skill",
+      "enabled": false,
+      "close": true,
+      "message": "Thanks for the contribution! New skills belong in their own skill package rather than this repository, so I'm closing this out."
+    },
+    {
+      "label": "r: support",
+      "close": true,
+      "message": "This looks like a support request rather than a bug or change for this repository. Please contact Arc Forge support so we can help with your account or agents directly."
+    },
+    {
+      "label": "r: false-positive",
+      "close": true,
+      "message": "Closing this because it looks like a false positive or reclassification-only report rather than an actionable bug. If this is still a real issue, please open a fresh report with concrete reproduction steps and current-version details."
+    },
+    {
+      "label": "r: no-ci-pr",
+      "close": true,
+      "message": "Please don't open PRs that only chase test failures on main. The team handles those directly, including the root cause, so these PRs add review load without helping.\n\nThank you."
+    },
+    {
+      "label": "r: too-many-prs",
+      "close": true,
+      "message": "Closing this PR because the author has more than 20 active PRs in this repo. Please reduce the active PR queue and reopen or resubmit once it is back under the limit. You can close your own PRs to get back under the limit."
+    },
+    {
+      "label": "r: testflight",
+      "enabled": false,
+      "close": true,
+      "commentTriggers": [
+        "testflight"
+      ],
+      "message": "Not available, build from source."
+    },
+    {
+      "label": "r: third-party-extension",
+      "enabled": false,
+      "close": true,
+      "message": "Please publish this as a third-party plugin instead of adding it to this repository."
+    },
+    {
+      "label": "r: bluebubbles",
+      "enabled": false,
+      "close": true,
+      "commentTriggers": [
+        "bluebubbles",
+        "blue bubbles"
+      ],
+      "message": "BlueBubbles is not supported here."
+    },
+    {
+      "label": "r: moltbook",
+      "enabled": false,
+      "close": true,
+      "lock": true,
+      "lockReason": "off-topic",
+      "commentTriggers": [
+        "moltbook"
+      ],
+      "message": "Arc Forge is not affiliated with Moltbook, and issues related to Moltbook should not be submitted here."
+    }
+  ],
+  "candidateActionRules": [
+    {
+      "label": "triage: needs-pr-context",
+      "close": true,
+      "message": "Closing this PR because its body lacks a clear problem statement or evidence. Please reopen or resubmit with the user, product, or operational problem and the most useful validation evidence, such as a focused test, CI result, screenshot, recording, terminal output, log, or artifact."
+    },
+    {
+      "label": "triage: dirty-candidate",
+      "close": true,
+      "message": "Closing this PR because it looks dirty (too many unrelated or unexpected changes). This usually happens when a branch picks up unrelated commits or a merge went sideways. Please recreate the PR from a clean branch."
+    },
+    {
+      "label": "triage: external-plugin-candidate",
+      "enabled": false,
+      "close": true,
+      "message": "Please publish this as a third-party plugin instead of adding it to this repository."
+    },
+    {
+      "label": "triage: risky-infra",
+      "close": true,
+      "message": "Closing this PR because it changes infra/CI/release/ops plumbing without maintainer context and validation. That surface is high-blast-radius; open an issue first or get owner approval before sending a patch."
+    },
+    {
+      "label": "triage: docs-discoverability",
+      "enabled": false,
+      "close": true,
+      "message": "Closing this PR because docs discoverability and listing changes should go through a maintainer-owned docs plan, not drive-by changes."
+    },
+    {
+      "label": "triage: low-signal-docs",
+      "close": true,
+      "message": "Closing this PR because the docs-only change is too low-signal for this repository. Please reopen or resubmit with a concrete docs gap and linked context."
+    },
+    {
+      "label": "triage: test-only-no-bug",
+      "close": true,
+      "message": "Closing this PR because it only changes tests without a linked bug, owner request, or behavior change. Test-only PRs need a concrete regression or maintainer-requested gap."
+    },
+    {
+      "label": "triage: refactor-only",
+      "close": true,
+      "message": "Closing this PR because it is refactor/cleanup-only without maintainer context. We avoid churn unless it unlocks a concrete fix, architecture change, or owned cleanup."
+    },
+    {
+      "label": "triage: blank-template",
+      "close": true,
+      "message": "Closing this PR because the template is mostly blank and does not describe a concrete problem, fix, or test plan. Please reopen or resubmit with the missing context filled in."
+    }
+  ],
+  "labels": {
+    "r: support": {
+      "color": "0E8A16",
+      "description": "Auto-close: support requests belong with Arc Forge support."
+    },
+    "r: skill": {
+      "color": "5319E7",
+      "description": "Auto-close: skills belong in their own package, not this repo."
+    },
+    "r: third-party-extension": {
+      "color": "5319E7",
+      "description": "Auto-close: third-party plugins belong outside this repo."
+    },
+    "triage: external-plugin-candidate": {
+      "color": "C5DEF5",
+      "description": "Candidate: plugin/capability may belong outside this repo."
+    },
+    "r: moltbook": {
+      "color": "B60205",
+      "description": "Auto-close and lock: Moltbook is off-topic here."
+    }
+  }
+}
