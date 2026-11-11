@@ -70,3 +70,38 @@ a new upstream workflow would arrive enabled.
 
 Open rehearsal pull requests keep working after a sync. To review against the
 newer upstream, rebase the feature branch onto `upstream/main` and push it.
+
+## Repository-owned bot policy
+
+The two enabled arcforge-barnacle.yml and arcforge-labeler.yml workflows
+are the only triage event owners. Upstream auto-response.yml and labeler.yml
+remain unchanged and disabled. Do not enable them alongside the Arc Forge jobs.
+The existing command-reactions workflow is independent and stays unchanged.
+
+Both jobs mint a token scoped to this repository using org variable GH_APP_ID
+(primary 5116230) and secret GH_APP_PRIVATE_KEY. Token creation failure selects
+GH_APP_ID_FALLBACK (5711023) and GH_APP_PRIVATE_KEY_FALLBACK; failure of both
+is a failed job, never an anonymous or GITHUB_TOKEN write. Only trusted base
+code is checked out, with no persisted credentials.
+
+Barnacle policy lives in barnacle/config.json, with the existing optional
+.github/barnacle.json default-branch data override contract retained. The
+configured upstream snapshot in vendor/openclaw/ is the exact implementation
+previously served by central commit b0fc9bcc89b5219efc0c8e5f855aaedc3ccec6b6,
+not a second enabled owner. Its upstream identity is in vendor/openclaw/UPSTREAM
+and its license is retained. Keeping the snapshot avoids silently changing
+rehearsal policy to the newer upstream product defaults. The PR cap remains
+20, ClawSweeper branches and maintainers remain exempt, and the retired
+Clownfish prefix has no exemption. Product-specific disabled rules remain inert.
+
+The labeler preserves the previous central policy at
+a115c8f8dc02978d8c82c9554f02ea8e013a6981, including the local upstream
+.github/labeler.yml area map, size labels, maintainer safeguards and bounded
+manual backfill. Its label-cap helper uses the existing local upstream owner
+scripts/github/labeler-label-cap.mjs. No central workflow checkout is needed.
+
+Run node --test .arcforge/test/*.test.mjs for focused policy proof. The
+arcforge-bot-test.yml workflow runs that proof without secrets on PR code.
+Source tests do not prove live App authentication or fallback failover. After
+landing, use a bounded labeler dispatch and an authorized outside-item label
+for live proof; do not restore retired credentials to test the old path.
